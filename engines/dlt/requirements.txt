@@ -1,0 +1,11 @@
+dlt[filesystem,sql_database,deltalake]==1.30.0
+deltalake==1.6.4
+pyarrow==25.0.1
+pymssql==2.4.1
+mssql-python==1.15.0
+SQLAlchemy==2.0.54
+pandas==3.0.6
+numpy==2.5.3
+boto3==1.43.75
+s3fs==2026.9.0
+kubernetes==36.0.3

@@ -1,0 +1,464 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: spark-lab
+data:
+  prometheus.yml: "global:\n  scrape_interval: 10s\nscrape_configs:\n- honor_labels:\
+    \ true\n  job_name: pushgateway\n  static_configs:\n  - targets:\n    - pushgateway:9091\n\
+    - authorization:\n    credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token\n\
+    \  job_name: cadvisor\n  metric_relabel_configs:\n  - action: keep\n    regex:\
+    \ spark-lab\n    source_labels:\n    - namespace\n  metrics_path: /api/v1/nodes/company-spark/proxy/metrics/cadvisor\n\
+    \  scheme: https\n  static_configs:\n  - targets:\n    - kubernetes.default.svc:443\n\
+    \  tls_config:\n    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability
+  namespace: spark-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: company-observability
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - nodes/proxy
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: company-observability
+subjects:
+- kind: ServiceAccount
+  name: observability
+  namespace: spark-lab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: company-observability
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pushgateway-data
+  namespace: spark-lab
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pushgateway
+  namespace: spark-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pushgateway
+  template:
+    metadata:
+      labels:
+        app: pushgateway
+    spec:
+      containers:
+      - name: pushgateway
+        image: prom/pushgateway:v1.11.3
+        args:
+        - --persistence.file=/data/metrics
+        env: []
+        ports:
+        - containerPort: 9091
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            memory: 768Mi
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: pushgateway-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pushgateway
+  namespace: spark-lab
+spec:
+  selector:
+    app: pushgateway
+  ports:
+  - port: 9091
+    targetPort: 9091
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: spark-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v3.14.0
+        args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.retention.time=7d
+        - --storage.tsdb.retention.size=300MB
+        env: []
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            memory: 768Mi
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+      serviceAccountName: observability
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: spark-lab
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard
+  namespace: spark-lab
+data:
+  benchmark.json: '{"uid": "company-spark", "title": "Company Ingestion \u2014 Spark
+    \u00d7 dltHub", "schemaVersion": 39, "version": 2, "refresh": "10s", "time": {"from":
+    "now-6h", "to": "now"}, "panels": [{"id": 1, "title": "Throughput da ingest\u00e3o
+    \u2014 registros/s", "description": "Linhas validadas / dura\u00e7\u00e3o de extra\u00e7\u00e3o
+    e escrita Delta. N\u00e3o inclui inicializa\u00e7\u00e3o, planejamento ou leitura
+    de valida\u00e7\u00e3o.", "type": "timeseries", "datasource": {"type": "prometheus",
+    "uid": "prometheus"}, "gridPos": {"x": 0, "y": 0, "w": 8, "h": 8}, "targets":
+    [{"expr": "company_ingestion_throughput_rows_per_second{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "rps", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 2, "title":
+    "Throughput de sa\u00edda Delta \u2014 bytes/s", "description": "Bytes comprimidos
+    dos arquivos de dados Delta / dura\u00e7\u00e3o de extra\u00e7\u00e3o+escrita.
+    N\u00e3o representa tr\u00e1fego da origem.", "type": "timeseries", "datasource":
+    {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"x": 8, "y": 0, "w":
+    8, "h": 8}, "targets": [{"expr": "company_ingestion_throughput_output_bytes_per_second{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "Bps", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 3, "title":
+    "Registros confirmados", "description": "", "type": "timeseries", "datasource":
+    {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"x": 16, "y": 0, "w":
+    8, "h": 8}, "targets": [{"expr": "company_ingestion_rows{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "short", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 4, "title":
+    "Dura\u00e7\u00e3o por fase", "description": "", "type": "timeseries", "datasource":
+    {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"x": 0, "y": 8, "w":
+    12, "h": 8}, "targets": [{"expr": "company_ingestion_duration_seconds{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{phase}}", "refId": "A",
+    "instant": false, "format": "time_series"}], "fieldConfig": {"defaults": {"unit":
+    "s", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode": "table",
+    "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 5, "title": "Parti\u00e7\u00f5es/paralelismo
+    do motor", "description": "", "type": "timeseries", "datasource": {"type": "prometheus",
+    "uid": "prometheus"}, "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}, "targets":
+    [{"expr": "company_ingestion_partitions{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "short", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 6, "title":
+    "Origem \u2014 bytes ESTIMADOS (p\u00e1ginas SQL Server)", "description": "",
+    "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"},
+    "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8}, "targets": [{"expr": "company_ingestion_source_estimated_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "bytes", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 7, "title":
+    "Destino \u2014 bytes efetivos de dados Delta", "description": "", "type": "timeseries",
+    "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"x": 12,
+    "y": 16, "w": 12, "h": 8}, "targets": [{"expr": "company_ingestion_output_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "bytes", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 8, "title":
+    "Plano escolhido e justificativa", "description": "", "type": "table", "datasource":
+    {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"x": 0, "y": 24, "w":
+    24, "h": 8}, "targets": [{"expr": "company_ingestion_plan_info{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": true, "format": "table"}], "fieldConfig": {"defaults": {"unit":
+    "short", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 9, "title":
+    "CPU por pod \u2014 cores utilizados", "description": "", "type": "timeseries",
+    "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"x": 0,
+    "y": 32, "w": 12, "h": 8}, "targets": [{"expr": "sum by(pod) (rate(container_cpu_usage_seconds_total{namespace=\"spark-lab\",container!=\"\",container!=\"POD\"}[1m]))",
+    "legendFormat": "{{pod}}", "refId": "A", "instant": false, "format": "time_series"}],
+    "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}, "overrides": []},
+    "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip":
+    {"mode": "multi"}}}, {"id": 10, "title": "Mem\u00f3ria por pod \u2014 working
+    set", "description": "", "type": "timeseries", "datasource": {"type": "prometheus",
+    "uid": "prometheus"}, "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8}, "targets":
+    [{"expr": "sum by(pod) (container_memory_working_set_bytes{namespace=\"spark-lab\",container!=\"\",container!=\"POD\"})",
+    "legendFormat": "{{pod}}", "refId": "A", "instant": false, "format": "time_series"}],
+    "fieldConfig": {"defaults": {"unit": "bytes", "decimals": 2}, "overrides": []},
+    "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip":
+    {"mode": "multi"}}}, {"id": 11, "title": "Chunks planejados", "description": "Quantidade
+    de chunks dur\u00e1veis produzidos pelo planner distribu\u00eddo.", "type": "timeseries",
+    "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"x": 0,
+    "y": 40, "w": 8, "h": 8}, "targets": [{"expr": "max by(engine,table,profile,run_id)
+    (company_ingestion_chunks_total{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"})",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "short", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 12, "title":
+    "Dura\u00e7\u00e3o por chunk", "description": "Permite observar skew entre os
+    ranges processados pelos pods dlt.", "type": "timeseries", "datasource": {"type":
+    "prometheus", "uid": "prometheus"}, "gridPos": {"x": 8, "y": 40, "w": 8, "h":
+    8}, "targets": [{"expr": "company_ingestion_chunk_duration_seconds{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{table}} / chunk {{chunk_id}}", "refId": "A", "instant": false,
+    "format": "time_series"}], "fieldConfig": {"defaults": {"unit": "s", "decimals":
+    2}, "overrides": []}, "options": {"legend": {"displayMode": "table", "placement":
+    "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 13, "title": "Retries de chunks",
+    "description": "", "type": "timeseries", "datasource": {"type": "prometheus",
+    "uid": "prometheus"}, "gridPos": {"x": 16, "y": 40, "w": 8, "h": 8}, "targets":
+    [{"expr": "company_ingestion_retries_total{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "short", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 14, "title":
+    "Progresso dos chunks", "description": "Percentual atualizado pelo Driver Job
+    enquanto o Indexed Job executa.", "type": "timeseries", "datasource": {"type":
+    "prometheus", "uid": "prometheus"}, "gridPos": {"x": 0, "y": 48, "w": 24, "h":
+    8}, "targets": [{"expr": "100 * company_ingestion_chunks_succeeded{job=\"company_ingestion_progress\",engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}
+    / company_ingestion_chunks_total{job=\"company_ingestion_progress\",engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "percent", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 15, "title":
+    "Chunk alvo resolvido", "description": "Tamanho de origem por chunk resolvido
+    pelo planner ou informado manualmente.", "type": "timeseries", "datasource": {"type":
+    "prometheus", "uid": "prometheus"}, "gridPos": {"x": 0, "y": 56, "w": 8, "h":
+    8}, "targets": [{"expr": "company_ingestion_target_chunk_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "bytes", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 16, "title":
+    "Fetch size resolvido", "description": "Quantidade de linhas por fetch resolvida
+    pelo planner ou informada manualmente.", "type": "timeseries", "datasource": {"type":
+    "prometheus", "uid": "prometheus"}, "gridPos": {"x": 8, "y": 56, "w": 8, "h":
+    8}, "targets": [{"expr": "company_ingestion_fetch_size{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "short", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 17, "title":
+    "Amplifica\u00e7\u00e3o l\u00f3gica de escrita", "description": "Bytes Parquet
+    de staging mais bytes reescritos na publica\u00e7\u00e3o, divididos pelos bytes
+    Delta ativos.", "type": "timeseries", "datasource": {"type": "prometheus", "uid":
+    "prometheus"}, "gridPos": {"x": 16, "y": 56, "w": 8, "h": 8}, "targets": [{"expr":
+    "company_ingestion_data_write_amplification_ratio{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+    "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId":
+    "A", "instant": false, "format": "time_series"}], "fieldConfig": {"defaults":
+    {"unit": "short", "decimals": 2}, "overrides": []}, "options": {"legend": {"displayMode":
+    "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}}, {"id": 18, "title":
+    "Tempo interno dos chunks", "description": "Soma de CPU/tempo por opera\u00e7\u00e3o
+    dos chunks; use para distinguir JDBC, materializa\u00e7\u00e3o Python e dlt/Parquet/upload.",
+    "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"},
+    "gridPos": {"x": 0, "y": 64, "w": 24, "h": 8}, "targets": [{"expr": "sum by(phase)
+    (company_ingestion_chunk_phase_duration_seconds{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"})",
+    "legendFormat": "{{phase}}", "refId": "A", "instant": false, "format": "time_series"}],
+    "fieldConfig": {"defaults": {"unit": "s", "decimals": 2}, "overrides": []}, "options":
+    {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode":
+    "multi"}}}], "templating": {"list": [{"name": "engine", "type": "query", "datasource":
+    {"type": "prometheus", "uid": "prometheus"}, "query": "label_values(company_ingestion_rows,
+    engine)", "includeAll": true, "allValue": ".*", "multi": true, "current": {"text":
+    "All", "value": "$__all"}, "refresh": 1}, {"name": "table", "type": "query", "datasource":
+    {"type": "prometheus", "uid": "prometheus"}, "query": "label_values(company_ingestion_rows,
+    table)", "includeAll": true, "allValue": ".*", "multi": true, "current": {"text":
+    "All", "value": "$__all"}, "refresh": 1}, {"name": "profile", "type": "query",
+    "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": "label_values(company_ingestion_rows,
+    profile)", "includeAll": true, "allValue": ".*", "multi": true, "current": {"text":
+    "All", "value": "$__all"}, "refresh": 1}]}}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: spark-lab
+data:
+  datasources.yaml: "apiVersion: 1\ndatasources:\n- access: proxy\n  isDefault: true\n\
+    \  name: Prometheus\n  type: prometheus\n  uid: prometheus\n  url: http://prometheus:9090\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-providers
+  namespace: spark-lab
+data:
+  dashboards.yaml: "apiVersion: 1\nproviders:\n- name: Company Spark\n  options:\n\
+    \    path: /etc/grafana/dashboards\n  type: file\n"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: spark-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:13.2.2
+        args: []
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-credentials
+              key: password
+        - name: GF_USERS_DEFAULT_THEME
+          value: light
+        ports:
+        - containerPort: 3000
+        volumeMounts:
+        - name: dashboards
+          mountPath: /etc/grafana/dashboards
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: providers
+          mountPath: /etc/grafana/provisioning/dashboards
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 768Mi
+      volumes:
+      - name: dashboards
+        configMap:
+          name: grafana-dashboard
+      - name: datasources
+        configMap:
+          name: grafana-datasources
+      - name: providers
+        configMap:
+          name: grafana-providers
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: spark-lab
+spec:
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-history
+  namespace: spark-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-history
+  template:
+    metadata:
+      labels:
+        app: spark-history
+    spec:
+      containers:
+      - name: spark-history
+        image: company-spark-runtime:0.1.0
+        args: []
+        env:
+        - name: SPARK_HISTORY_OPTS
+          value: -Dspark.history.fs.logDirectory=s3a://spark-events/ -Dspark.hadoop.fs.s3a.endpoint=http://seaweedfs:8333
+            -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.connection.ssl.enabled=false
+            -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1 -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
+        - name: SPARK_DAEMON_MEMORY
+          value: 512m
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: seaweedfs-credentials
+              key: access_key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: seaweedfs-credentials
+              key: secret_key
+        ports:
+        - containerPort: 18080
+        volumeMounts: []
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            memory: 768Mi
+        command:
+        - /opt/spark/bin/spark-class
+        - org.apache.spark.deploy.history.HistoryServer
+        imagePullPolicy: IfNotPresent
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-history
+  namespace: spark-lab
+spec:
+  selector:
+    app: spark-history
+  ports:
+  - port: 18080
+    targetPort: 18080

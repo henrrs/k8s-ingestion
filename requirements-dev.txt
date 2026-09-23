@@ -1,0 +1,4 @@
+boto3==1.43.98
+build==1.6.1
+pytest==9.1.1
+PyYAML==6.0.3

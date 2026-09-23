@@ -1,0 +1,42 @@
+{
+  "com.microsoft.sqlserver:mssql-jdbc:13.6.0.jre11": {
+    "sha256": "4c566e4022c4dcf1489aeb639fe49a0f6ffae3d796fdc2f56b5b8882d4c3bf5a",
+    "url": "https://repo.maven.apache.org/maven2/com/microsoft/sqlserver/mssql-jdbc/13.6.0.jre11/mssql-jdbc-13.6.0.jre11.jar"
+  },
+  "io.delta:delta-kernel-api:4.4.0": {
+    "sha256": "ee9b5a14ac3b7efdff4d61a58478fe8eb0e5a3fbca43889dca7290795fe79a11",
+    "url": "https://repo.maven.apache.org/maven2/io/delta/delta-kernel-api/4.4.0/delta-kernel-api-4.4.0.jar"
+  },
+  "io.delta:delta-kernel-defaults:4.4.0": {
+    "sha256": "225c975199e4718b38ee5b7e6da7f19e9585024262b2cec2656b32151a856b0b",
+    "url": "https://repo.maven.apache.org/maven2/io/delta/delta-kernel-defaults/4.4.0/delta-kernel-defaults-4.4.0.jar"
+  },
+  "io.delta:delta-kernel-unitycatalog:4.4.0": {
+    "sha256": "cea22dfb4ac562b3cd27bf652697750e8336009d73fb06631363aaaad5345ffa",
+    "url": "https://repo.maven.apache.org/maven2/io/delta/delta-kernel-unitycatalog/4.4.0/delta-kernel-unitycatalog-4.4.0.jar"
+  },
+  "io.delta:delta-spark_4.2_2.13:4.4.0": {
+    "sha256": "27d4fd8b1f879535c573ed1c718177d6a27f24d3e626ba02e216369725721ead",
+    "url": "https://repo.maven.apache.org/maven2/io/delta/delta-spark_4.2_2.13/4.4.0/delta-spark_4.2_2.13-4.4.0.jar"
+  },
+  "io.delta:delta-storage:4.4.0": {
+    "sha256": "c46735481fa8e326b0957be02b4420cbcab4b325bb08009b7f2045a95133f1cc",
+    "url": "https://repo.maven.apache.org/maven2/io/delta/delta-storage/4.4.0/delta-storage-4.4.0.jar"
+  },
+  "org.apache.hadoop:hadoop-aws:3.5.0": {
+    "sha256": "66bd9eefb938b1a1657487324b63c13df2d8b17164a1dd24e0ef37b905bc5baa",
+    "url": "https://repo.maven.apache.org/maven2/org/apache/hadoop/hadoop-aws/3.5.0/hadoop-aws-3.5.0.jar"
+  },
+  "org.wildfly.openssl:wildfly-openssl:2.2.5.Final": {
+    "sha256": "71fb7932f99a727edb23c5a2cb8c6855ac7196fad41aa0669b3998e277165154",
+    "url": "https://repo.maven.apache.org/maven2/org/wildfly/openssl/wildfly-openssl/2.2.5.Final/wildfly-openssl-2.2.5.Final.jar"
+  },
+  "software.amazon.awssdk:bundle:2.35.4": {
+    "sha256": "db4b55f24ad1b4e70f17eb1717a4de76a8dadc5a27d764be7c44ff67b2c1c677",
+    "url": "https://repo.maven.apache.org/maven2/software/amazon/awssdk/bundle/2.35.4/bundle-2.35.4.jar"
+  },
+  "software.amazon.s3.analyticsaccelerator:analyticsaccelerator-s3:1.3.1": {
+    "sha256": "4959a9747cbb479c73c3ffbcd479bee5b014f8b2880994585a8693fb9d24675e",
+    "url": "https://repo.maven.apache.org/maven2/software/amazon/s3/analyticsaccelerator/analyticsaccelerator-s3/1.3.1/analyticsaccelerator-s3-1.3.1.jar"
+  }
+}

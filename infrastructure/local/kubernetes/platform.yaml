@@ -1,0 +1,1126 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spark-lab
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-live-code
+  namespace: spark-lab
+data:
+  company_airflow____init__.py: "\"\"\"Company provider for Spark and generic Kubernetes\
+    \ batch workloads.\"\"\"\n__version__ = \"0.3.0\"\n\ndef get_provider_info():\n\
+    \    return {\n        \"package-name\": \"company-airflow-provider\",\n     \
+    \   \"name\": \"Company Kubernetes Workloads\",\n        \"description\": \"Run\
+    \ versioned Spark applications and container workloads on Kubernetes.\",\n   \
+    \     \"versions\": [__version__],\n        \"operators\": [{\"integration-name\"\
+    : \"Company Kubernetes\", \"python-modules\": [\n            \"company_airflow.operators.spark\"\
+    , \"company_airflow.operators.enterprise_k8s\",\n            \"company_airflow.operators.enterprise_ingestion\"\
+    ]}],\n    }\n"
+  company_airflow__application.py: "\"\"\"Build native Apache SparkApplication objects\
+    \ from an execution request.\"\"\"\nfrom copy import deepcopy\nimport hashlib\n\
+    import json\nimport re\n\nPROFILES = {\n    \"small\": {\"driver_cores\": 1, \"\
+    driver_memory\": \"1g\", \"executors\": 2,\n              \"executor_cores\":\
+    \ 1, \"executor_memory\": \"1g\"},\n    \"medium\": {\"driver_cores\": 1, \"driver_memory\"\
+    : \"1g\", \"executors\": 2,\n               \"executor_cores\": 2, \"executor_memory\"\
+    : \"2g\"},\n}\n\n\ndef execution_name(dag_id: str, task_id: str, run_id: str,\
+    \ try_number: int) -> str:\n    identity = json.dumps([dag_id, task_id, run_id,\
+    \ try_number], separators=(\",\", \":\"))\n    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]\n\
+    \    stem = re.sub(\"[^a-z0-9-]\", \"-\", task_id.lower()).strip(\"-\")[:35] or\
+    \ \"job\"\n    return f\"company-{stem}-{digest}\"\n\n\ndef secret_env(name: str,\
+    \ secret: str, key: str) -> dict:\n    return {\"name\": name, \"valueFrom\":\
+    \ {\"secretKeyRef\": {\"name\": secret, \"key\": key}}}\n\n\ndef build_application(*,\
+    \ name: str, namespace: str, runtime: str, spark_version: str,\n             \
+    \         wheel_url: str, parameters: dict, compute_profile: str,\n          \
+    \            wheel_sha256: str | None = None, spark_conf: dict | None = None,\n\
+    \                      entrypoint: str = \"company_ingestion.entrypoint:main\"\
+    ) -> dict:\n    if compute_profile not in PROFILES:\n        raise ValueError(f\"\
+    Unknown compute profile {compute_profile!r}; choose {list(PROFILES)}\")\n    resources\
+    \ = PROFILES[compute_profile]\n    config = deepcopy(parameters)\n    config[\"\
+    run_id\"] = name\n    config[\"profile\"] = compute_profile\n    config.setdefault(\"\
+    planner\", {})[\"task_slots\"] = resources[\"executors\"] * resources[\"executor_cores\"\
+    ]\n    env = [\n        {\"name\": \"COMPANY_EXECUTION_CONFIG\", \"value\": json.dumps(config,\
+    \ separators=(\",\", \":\"))},\n        {\"name\": \"COMPANY_WHEEL_URL\", \"value\"\
+    : wheel_url},\n        {\"name\": \"COMPANY_ENTRYPOINT\", \"value\": entrypoint},\n\
+    \        secret_env(\"SQLSERVER_USER\", \"sqlserver-credentials\", \"username\"\
+    ),\n        secret_env(\"SQLSERVER_PASSWORD\", \"sqlserver-credentials\", \"password\"\
+    ),\n        secret_env(\"AWS_ACCESS_KEY_ID\", \"seaweedfs-credentials\", \"access_key\"\
+    ),\n        secret_env(\"AWS_SECRET_ACCESS_KEY\", \"seaweedfs-credentials\", \"\
+    secret_key\"),\n        {\"name\": \"AWS_REGION\", \"value\": \"us-east-1\"},\n\
+    \    ]\n    if wheel_sha256:\n        env.append({\"name\": \"COMPANY_WHEEL_SHA256\"\
+    , \"value\": wheel_sha256})\n    conf = {\n        \"spark.app.name\": name,\n\
+    \        \"spark.kubernetes.namespace\": namespace,\n        \"spark.kubernetes.container.image\"\
+    : runtime,\n        \"spark.kubernetes.container.image.pullPolicy\": \"IfNotPresent\"\
+    ,\n        \"spark.kubernetes.authenticate.driver.serviceAccountName\": \"spark\"\
+    ,\n        \"spark.driver.cores\": str(resources[\"driver_cores\"]),\n       \
+    \ \"spark.driver.memory\": resources[\"driver_memory\"],\n        \"spark.driver.memoryOverhead\"\
+    : \"512m\",\n        \"spark.kubernetes.driver.request.cores\": str(resources[\"\
+    driver_cores\"]),\n        \"spark.kubernetes.driver.limit.cores\": str(resources[\"\
+    driver_cores\"]),\n        \"spark.executor.instances\": str(resources[\"executors\"\
+    ]),\n        \"spark.executor.cores\": str(resources[\"executor_cores\"]),\n \
+    \       \"spark.executor.memory\": resources[\"executor_memory\"],\n        \"\
+    spark.executor.memoryOverhead\": \"512m\",\n        \"spark.kubernetes.executor.request.cores\"\
+    : str(resources[\"executor_cores\"]),\n        \"spark.kubernetes.executor.limit.cores\"\
+    : str(resources[\"executor_cores\"]),\n        \"spark.dynamicAllocation.enabled\"\
+    : \"false\",\n        \"spark.kubernetes.executor.deleteOnTermination\": \"true\"\
+    ,\n        \"spark.sql.extensions\": \"io.delta.sql.DeltaSparkSessionExtension\"\
+    ,\n        \"spark.sql.catalog.spark_catalog\": \"org.apache.spark.sql.delta.catalog.DeltaCatalog\"\
+    ,\n        \"spark.sql.adaptive.enabled\": \"true\",\n        \"spark.sql.session.timeZone\"\
+    : \"UTC\",\n        \"spark.hadoop.fs.s3a.endpoint\": \"http://seaweedfs:8333\"\
+    ,\n        \"spark.hadoop.fs.s3a.path.style.access\": \"true\",\n        \"spark.hadoop.fs.s3a.connection.ssl.enabled\"\
+    : \"false\",\n        \"spark.hadoop.fs.s3a.endpoint.region\": \"us-east-1\",\n\
+    \        \"spark.hadoop.fs.s3a.aws.credentials.provider\": \"software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider\"\
+    ,\n        \"spark.eventLog.enabled\": \"true\",\n        \"spark.eventLog.dir\"\
+    : \"s3a://spark-events/\",\n        \"spark.eventLog.rolling.enabled\": \"true\"\
+    ,\n        \"spark.eventLog.rolling.maxFileSize\": \"128m\",\n        \"spark.ui.prometheus.enabled\"\
+    : \"true\",\n        \"spark.executor.processTreeMetrics.enabled\": \"true\",\n\
+    \        \"spark.kubernetes.driver.label.company-run\": name,\n        \"spark.kubernetes.executor.label.company-run\"\
+    : name,\n        \"spark.kubernetes.driver.label.company-profile\": compute_profile,\n\
+    \        \"spark.kubernetes.executor.label.company-profile\": compute_profile,\n\
+    \        \"spark.kubernetes.driver.podTemplateContainerName\": \"spark-kubernetes-driver\"\
+    ,\n        \"spark.kubernetes.executor.podTemplateContainerName\": \"spark-kubernetes-executor\"\
+    ,\n    }\n    conf.update(spark_conf or {})\n    conf = {key: str(value) for key,\
+    \ value in conf.items()}\n    driver_template = {\"spec\": {\"containers\": [{\"\
+    name\": \"spark-kubernetes-driver\", \"env\": env}]}}\n    executor_env = [value\
+    \ for value in env if value[\"name\"] in {\"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\"\
+    , \"AWS_REGION\"}]\n    executor_template = {\"spec\": {\"containers\": [{\"name\"\
+    : \"spark-kubernetes-executor\", \"env\": executor_env}]}}\n    return {\n   \
+    \     \"apiVersion\": \"spark.apache.org/v1\", \"kind\": \"SparkApplication\"\
+    ,\n        \"metadata\": {\"name\": name, \"namespace\": namespace,\n        \
+    \             \"labels\": {\"app.kubernetes.io/managed-by\": \"company-airflow\"\
+    , \"company-profile\": compute_profile}},\n        \"spec\": {\n            \"\
+    pyFiles\": \"local:///opt/company/launcher.py\",\n            \"runtimeVersions\"\
+    : {\"sparkVersion\": spark_version},\n            \"sparkConf\": conf,\n     \
+    \       \"driverSpec\": {\"podTemplateSpec\": driver_template},\n            \"\
+    executorSpec\": {\"podTemplateSpec\": executor_template},\n            \"applicationTolerations\"\
+    : {\n                \"restartConfig\": {\"restartPolicy\": \"Never\"},\n    \
+    \            \"resourceRetainPolicy\": \"Always\",\n                \"resourceRetainDurationMillis\"\
+    : 900000,\n                \"ttlAfterStopMillis\": 86400000,\n               \
+    \ \"instanceConfig\": {\"minExecutors\": 1, \"initExecutors\": resources[\"executors\"\
+    ], \"maxExecutors\": resources[\"executors\"]},\n                \"applicationTimeoutConfig\"\
+    : {\"driverStartTimeoutMillis\": 600000,\n                                   \
+    \          \"executorStartTimeoutMillis\": 600000},\n            },\n        },\n\
+    \    }\n"
+  company_airflow__hooks____init__.py: ''
+  company_airflow__hooks__kubernetes_job.py: "\"\"\"Thin Kubernetes batch Job client.\"\
+    \"\"\nfrom kubernetes import client, config\nfrom kubernetes.client.exceptions\
+    \ import ApiException\n\n\nclass KubernetesJobHook:\n    def __init__(self, namespace=\"\
+    spark-lab\", in_cluster=True, kube_context=None):\n        self.namespace = namespace\n\
+    \        if in_cluster:\n            config.load_incluster_config()\n        \
+    \    self.api_client = client.ApiClient()\n        else:\n            self.api_client\
+    \ = config.new_client_from_config(context=kube_context)\n        self.batch =\
+    \ client.BatchV1Api(self.api_client)\n        self.core = client.CoreV1Api(self.api_client)\n\
+    \n    def _dict(self, value):\n        return self.api_client.sanitize_for_serialization(value)\n\
+    \n    def get(self, name):\n        return self._dict(self.batch.read_namespaced_job(name,\
+    \ self.namespace, _request_timeout=(5, 30)))\n\n    def submit(self, body):\n\
+    \        try:\n            return self._dict(self.batch.create_namespaced_job(self.namespace,\
+    \ body, _request_timeout=(5, 30)))\n        except ApiException as error:\n  \
+    \          if error.status != 409:\n                raise\n            existing\
+    \ = self.get(body[\"metadata\"][\"name\"])\n            if existing.get(\"metadata\"\
+    , {}).get(\"labels\", {}).get(\"app.kubernetes.io/managed-by\") != \"company-airflow\"\
+    :\n                raise RuntimeError(\"Refusing to attach to a Kubernetes Job\
+    \ owned by another client\") from error\n            return existing\n\n    def\
+    \ delete(self, name):\n        try:\n            self.batch.delete_namespaced_job(\n\
+    \                name, self.namespace, propagation_policy=\"Foreground\", _request_timeout=(5,\
+    \ 30))\n        except ApiException as error:\n            if error.status !=\
+    \ 404:\n                raise\n\n    def logs(self, name):\n        pods = self.core.list_namespaced_pod(\n\
+    \            self.namespace, label_selector=f\"job-name={name}\", _request_timeout=(5,\
+    \ 30))\n        for pod in pods.items:\n            yield pod.metadata.name, self.core.read_namespaced_pod_log(\n\
+    \                pod.metadata.name, self.namespace, container=\"job\", tail_lines=500,\n\
+    \                _request_timeout=(5, 30))\n"
+  company_airflow__hooks__spark_kubernetes.py: "\"\"\"Thin client for the native Apache\
+    \ Spark application API.\"\"\"\nfrom kubernetes import client, config\nfrom kubernetes.client.exceptions\
+    \ import ApiException\n\nGROUP, VERSION, PLURAL = \"spark.apache.org\", \"v1\"\
+    , \"sparkapplications\"\n\n\nclass SparkApplicationHook:\n    def __init__(self,\
+    \ namespace=\"spark-lab\", in_cluster=True, kube_context=None):\n        self.namespace\
+    \ = namespace\n        if in_cluster:\n            config.load_incluster_config()\n\
+    \            api_client = client.ApiClient()\n        else:\n            api_client\
+    \ = config.new_client_from_config(context=kube_context)\n        self.custom =\
+    \ client.CustomObjectsApi(api_client)\n        self.core = client.CoreV1Api(api_client)\n\
+    \n    def get(self, name):\n        return self.custom.get_namespaced_custom_object(\n\
+    \            GROUP, VERSION, self.namespace, PLURAL, name, _request_timeout=(5,\
+    \ 30))\n\n    def submit(self, body):\n        try:\n            return self.custom.create_namespaced_custom_object(\n\
+    \                GROUP, VERSION, self.namespace, PLURAL, body, _request_timeout=(5,\
+    \ 30))\n        except ApiException as error:\n            if error.status !=\
+    \ 409:\n                raise\n            # Stable name provides reattachment\
+    \ when a worker repeats a submission.\n            existing = self.get(body[\"\
+    metadata\"][\"name\"])\n            if existing.get(\"metadata\", {}).get(\"labels\"\
+    , {}).get(\"app.kubernetes.io/managed-by\") != \"company-airflow\":\n        \
+    \        raise RuntimeError(\"Refusing to attach to a SparkApplication owned by\
+    \ another client\") from error\n            return existing\n\n    def delete(self,\
+    \ name):\n        try:\n            self.custom.delete_namespaced_custom_object(\n\
+    \                GROUP, VERSION, self.namespace, PLURAL, name,\n             \
+    \   body=client.V1DeleteOptions(propagation_policy=\"Foreground\"),\n        \
+    \        _request_timeout=(5, 30))\n        except ApiException as error:\n  \
+    \          if error.status != 404:\n                raise\n\n    def driver_logs(self,\
+    \ name):\n        pods = self.core.list_namespaced_pod(\n            self.namespace,\
+    \ label_selector=f\"company-run={name},spark-role=driver\",\n            _request_timeout=(5,\
+    \ 30))\n        for pod in pods.items:\n            yield pod.metadata.name, self.core.read_namespaced_pod_log(\n\
+    \                pod.metadata.name, self.namespace, container=\"spark-kubernetes-driver\"\
+    ,\n                tail_lines=500, _request_timeout=(5, 30))\n"
+  company_airflow__ingestion.py: "\"\"\"Pure construction of the driver/worker execution\
+    \ contract.\"\"\"\n\nfrom copy import deepcopy\n\nfrom company_airflow.job import\
+    \ JOB_PROFILES\n\n\nDEFAULT_SECRET_ENV = [\n    {\"name\": \"SQLSERVER_USER\"\
+    , \"secret\": \"sqlserver-credentials\", \"key\": \"username\"},\n    {\"name\"\
+    : \"SQLSERVER_PASSWORD\", \"secret\": \"sqlserver-credentials\", \"key\": \"password\"\
+    },\n    {\"name\": \"AWS_ACCESS_KEY_ID\", \"secret\": \"seaweedfs-credentials\"\
+    , \"key\": \"access_key\"},\n    {\"name\": \"AWS_SECRET_ACCESS_KEY\", \"secret\"\
+    : \"seaweedfs-credentials\", \"key\": \"secret_key\"},\n]\n\n\ndef build_ingestion_configuration(\n\
+    \    *, source, destination, execution, storage, metrics, validation, image,\n\
+    \    compute_profile, namespace, worker_service_account, secret_env, env,\n  \
+    \  timeout_seconds,\n):\n    secrets = deepcopy(secret_env or DEFAULT_SECRET_ENV)\n\
+    \    worker_env = {\"AWS_REGION\": \"us-east-1\", \"DLT_TELEMETRY\": \"false\"\
+    }\n    worker_env.update(env or {})\n    return {\n        \"source\": deepcopy(source),\n\
+    \        \"destination\": deepcopy(destination),\n        \"execution\": deepcopy(execution\
+    \ or {}),\n        \"storage\": deepcopy(storage or {}),\n        \"metrics\"\
+    : deepcopy(metrics or {}),\n        \"validation\": deepcopy(validation or {}),\n\
+    \        \"_orchestration\": {\n            \"image\": image,\n            \"\
+    namespace\": namespace,\n            \"worker_service_account\": worker_service_account,\n\
+    \            \"worker_resources\": deepcopy(JOB_PROFILES.get(compute_profile,\
+    \ {})),\n            \"worker_env\": worker_env,\n            \"secret_env\":\
+    \ secrets,\n            \"timeout_seconds\": timeout_seconds,\n        },\n  \
+    \  }\n\n"
+  company_airflow__job.py: "\"\"\"Build generic Kubernetes Jobs for containerized\
+    \ enterprise workloads.\"\"\"\nfrom copy import deepcopy\nimport hashlib\nimport\
+    \ json\nimport re\nfrom collections.abc import Mapping\n\nJOB_PROFILES = {\n \
+    \   \"small\": {\"cpu\": \"1\", \"memory\": \"2Gi\"},\n    \"medium\": {\"cpu\"\
+    : \"4\", \"memory\": \"6Gi\"},\n}\n\n\ndef job_name(dag_id, task_id, run_id, try_number):\n\
+    \    identity = json.dumps([dag_id, task_id, run_id, try_number], separators=(\"\
+    ,\", \":\"))\n    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]\n\
+    \    stem = re.sub(\"[^a-z0-9-]\", \"-\", task_id.lower()).strip(\"-\")[:35] or\
+    \ \"job\"\n    return f\"enterprise-{stem}-{digest}\"\n\n\ndef build_job(*, name,\
+    \ namespace, image, configuration, compute_profile=\"small\",\n              command=None,\
+    \ arguments=None, env=None, secret_env=None,\n              timeout_seconds=3600,\
+    \ service_account_name=None, backoff_limit=0,\n              execution_profile=None):\n\
+    \    if compute_profile not in JOB_PROFILES:\n        raise ValueError(f\"Unknown\
+    \ compute profile {compute_profile!r}; choose {list(JOB_PROFILES)}\")\n    if\
+    \ not isinstance(configuration, Mapping):\n        raise ValueError(\"configuration\
+    \ must be a mapping\")\n    if env is not None and not isinstance(env, Mapping):\n\
+    \        raise ValueError(\"env must be a mapping\")\n    if not isinstance(image,\
+    \ str) or not image.strip():\n        raise ValueError(\"image must be a non-empty\
+    \ string\")\n    resources = JOB_PROFILES[compute_profile]\n    config = deepcopy(configuration)\n\
+    \    config[\"run_id\"] = name\n    config[\"profile\"] = execution_profile or\
+    \ compute_profile\n    container_env = [{\"name\": \"COMPANY_JOB_CONFIG\", \"\
+    value\": json.dumps(config, separators=(\",\", \":\"))}]\n    container_env.extend({\"\
+    name\": key, \"value\": str(value)} for key, value in (env or {}).items())\n \
+    \   for item in secret_env or []:\n        if not isinstance(item, Mapping) or\
+    \ set(item) != {\"name\", \"secret\", \"key\"}:\n            raise ValueError(\"\
+    Each secret_env entry must contain only name, secret and key\")\n        if not\
+    \ all(isinstance(item[key], str) and item[key] for key in (\"name\", \"secret\"\
+    , \"key\")):\n            raise ValueError(\"secret_env name, secret and key must\
+    \ be non-empty strings\")\n        container_env.append({\"name\": item[\"name\"\
+    ], \"valueFrom\": {\n            \"secretKeyRef\": {\"name\": item[\"secret\"\
+    ], \"key\": item[\"key\"]}}})\n    container = {\n        \"name\": \"job\", \"\
+    image\": image, \"imagePullPolicy\": \"IfNotPresent\",\n        \"env\": container_env,\n\
+    \        \"resources\": {\"requests\": resources, \"limits\": resources},\n  \
+    \      \"securityContext\": {\"allowPrivilegeEscalation\": False, \"capabilities\"\
+    : {\"drop\": [\"ALL\"]}},\n    }\n    if command:\n        container[\"command\"\
+    ] = command\n    if arguments:\n        container[\"args\"] = arguments\n    labels\
+    \ = {\"app.kubernetes.io/managed-by\": \"company-airflow\", \"company-run\": name,\n\
+    \              \"company-profile\": compute_profile, \"company-workload\": \"\
+    enterprise-job\"}\n    return {\n        \"apiVersion\": \"batch/v1\", \"kind\"\
+    : \"Job\",\n        \"metadata\": {\"name\": name, \"namespace\": namespace, \"\
+    labels\": labels},\n        \"spec\": {\n            \"backoffLimit\": backoff_limit,\n\
+    \            \"activeDeadlineSeconds\": timeout_seconds,\n            \"ttlSecondsAfterFinished\"\
+    : 86400,\n            \"template\": {\"metadata\": {\"labels\": labels}, \"spec\"\
+    : {\n                \"restartPolicy\": \"Never\", \"containers\": [container],\n\
+    \                **({\"serviceAccountName\": service_account_name}\n         \
+    \          if service_account_name else {})}},\n        },\n    }\n\n\ndef job_result(job):\n\
+    \    status = job.get(\"status\") or {}\n    if status.get(\"succeeded\", 0) >\
+    \ 0:\n        return {\"status\": \"success\", \"state\": \"Succeeded\", \"message\"\
+    : \"Kubernetes Job completed\"}\n    if status.get(\"failed\", 0) > 0:\n     \
+    \   message = \"Kubernetes Job failed\"\n        for condition in status.get(\"\
+    conditions\") or []:\n            if condition.get(\"type\") == \"Failed\":\n\
+    \                message = condition.get(\"message\") or condition.get(\"reason\"\
+    ) or message\n        return {\"status\": \"error\", \"state\": \"Failed\", \"\
+    message\": message}\n    return None\n"
+  company_airflow__operators____init__.py: ''
+  company_airflow__operators__enterprise_ingestion.py: "\"\"\"One Airflow task for\
+    \ a driver-coordinated distributed ingestion run.\"\"\"\n\nfrom copy import deepcopy\n\
+    \nfrom company_airflow.job import JOB_PROFILES\nfrom company_airflow.ingestion\
+    \ import build_ingestion_configuration\nfrom company_airflow.operators.enterprise_k8s\
+    \ import EnterpriseK8sOperator\n\n\nclass EnterpriseIngestionOperator(EnterpriseK8sOperator):\n\
+    \    \"\"\"Submit one Driver Job; the driver plans and owns all worker Jobs.\"\
+    \"\"\n\n    ui_color = \"#DDF4FF\"\n\n    def __init__(\n        self,\n     \
+    \   *,\n        source,\n        destination,\n        execution=None,\n     \
+    \   storage=None,\n        metrics=None,\n        validation=None,\n        image=\"\
+    company-dlt-ingestion:0.6.0\",\n        compute_profile=\"small\",\n        namespace=\"\
+    spark-lab\",\n        driver_service_account=\"ingestion-driver\",\n        worker_service_account=\"\
+    ingestion-worker\",\n        secret_env=None,\n        env=None,\n        timeout_seconds=7200,\n\
+    \        **kwargs,\n    ):\n        if compute_profile not in JOB_PROFILES and\
+    \ \"{{\" not in str(compute_profile):\n            raise ValueError(\n       \
+    \         f\"Unknown compute profile {compute_profile!r}; \"\n               \
+    \ f\"choose {list(JOB_PROFILES)}\"\n            )\n        configuration = build_ingestion_configuration(\n\
+    \            source=source, destination=destination, execution=execution,\n  \
+    \          storage=storage, metrics=metrics, validation=validation, image=image,\n\
+    \            compute_profile=compute_profile, namespace=namespace,\n         \
+    \   worker_service_account=worker_service_account,\n            secret_env=secret_env,\
+    \ env=env, timeout_seconds=timeout_seconds,\n        )\n        secrets = configuration[\"\
+    _orchestration\"][\"secret_env\"]\n        worker_env = configuration[\"_orchestration\"\
+    ][\"worker_env\"]\n        super().__init__(\n            image=image,\n     \
+    \       configuration=configuration,\n            compute_profile=\"small\",\n\
+    \            execution_profile=compute_profile,\n            arguments=[\"driver\"\
+    ],\n            env=worker_env,\n            secret_env=secrets,\n           \
+    \ namespace=namespace,\n            timeout_seconds=timeout_seconds,\n       \
+    \     result_marker=\"COMPANY_INGESTION_RESULT=\",\n            service_account_name=driver_service_account,\n\
+    \            backoff_limit=1,\n            **kwargs,\n        )\n\n    def execute(self,\
+    \ context):\n        if self.execution_profile not in JOB_PROFILES:\n        \
+    \    raise ValueError(\n                f\"Unknown compute profile {self.execution_profile!r};\
+    \ \"\n                f\"choose {list(JOB_PROFILES)}\"\n            )\n      \
+    \  self.configuration[\"_orchestration\"][\"worker_resources\"] = deepcopy(\n\
+    \            JOB_PROFILES[self.execution_profile]\n        )\n        return super().execute(context)\n"
+  company_airflow__operators__enterprise_k8s.py: "\"\"\"Generic deferrable operator\
+    \ for versioned container workloads on Kubernetes.\"\"\"\nfrom datetime import\
+    \ timedelta\nimport json\nimport time\n\nfrom airflow.sdk import BaseOperator\n\
+    from airflow.sdk.exceptions import AirflowException, AirflowSkipException\n\n\
+    from company_airflow.hooks.kubernetes_job import KubernetesJobHook\nfrom company_airflow.job\
+    \ import build_job, job_name, job_result\nfrom company_airflow.triggers.job import\
+    \ KubernetesJobTrigger\n\n\nclass EnterpriseK8sOperator(BaseOperator):\n    template_fields\
+    \ = (\"configuration\", \"compute_profile\", \"execution_profile\", \"image\"\
+    , \"command\", \"arguments\", \"env\", \"enabled\")\n    template_fields_renderers\
+    \ = {\"configuration\": \"json\", \"env\": \"json\"}\n    ui_color = \"#E8F5E9\"\
+    \n\n    def __init__(self, *, image, configuration, compute_profile=\"small\"\
+    ,\n                 command=None, arguments=None, env=None, secret_env=None,\n\
+    \                 namespace=\"spark-lab\", timeout_seconds=3600, poll_interval=5,\n\
+    \                 result_marker=\"COMPANY_JOB_RESULT=\", in_cluster=True,\n  \
+    \               kube_context=None, enabled=True, service_account_name=None,\n\
+    \                 backoff_limit=0, execution_profile=None, **kwargs):\n      \
+    \  super().__init__(**kwargs)\n        self.image, self.configuration, self.compute_profile\
+    \ = image, configuration, compute_profile\n        self.command, self.arguments,\
+    \ self.env = command, arguments, env\n        self.secret_env, self.namespace\
+    \ = secret_env, namespace\n        self.timeout_seconds, self.poll_interval =\
+    \ timeout_seconds, poll_interval\n        self.result_marker = result_marker\n\
+    \        self.service_account_name = service_account_name\n        self.backoff_limit\
+    \ = backoff_limit\n        self.execution_profile = execution_profile\n      \
+    \  self.in_cluster, self.kube_context, self.enabled = in_cluster, kube_context,\
+    \ enabled\n        self.job_name = None\n\n    def _hook(self):\n        return\
+    \ KubernetesJobHook(self.namespace, self.in_cluster, self.kube_context)\n\n  \
+    \  def execute(self, context):\n        if str(self.enabled).lower() in {\"false\"\
+    , \"0\", \"none\"}:\n            raise AirflowSkipException(\"Workload was not\
+    \ selected\")\n        ti = context[\"ti\"]\n        self.job_name = job_name(ti.dag_id,\
+    \ ti.task_id, context[\"run_id\"], ti.try_number)\n        body = build_job(\n\
+    \            name=self.job_name, namespace=self.namespace, image=self.image,\n\
+    \            configuration=self.configuration, compute_profile=self.compute_profile,\n\
+    \            command=self.command, arguments=self.arguments, env=self.env,\n \
+    \           secret_env=self.secret_env, timeout_seconds=self.timeout_seconds,\n\
+    \            service_account_name=self.service_account_name,\n            backoff_limit=self.backoff_limit,\n\
+    \            execution_profile=self.execution_profile)\n        job = self._hook().submit(body)\n\
+    \        self.log.info(\"Kubernetes Job %s submitted/reattached; image=%s profile=%s\"\
+    ,\n                      self.job_name, self.image, self.compute_profile)\n  \
+    \      ti.xcom_push(key=\"kubernetes_job\", value=self.job_name)\n        result\
+    \ = job_result(job)\n        if result:\n            return self.execute_complete(context,\
+    \ {\"name\": self.job_name, **result})\n        self.defer(\n            trigger=KubernetesJobTrigger(\n\
+    \                name=self.job_name, namespace=self.namespace,\n             \
+    \   deadline=time.time() + self.timeout_seconds,\n                poll_interval=self.poll_interval,\
+    \ in_cluster=self.in_cluster,\n                kube_context=self.kube_context),\n\
+    \            method_name=\"execute_complete\", timeout=timedelta(seconds=self.timeout_seconds\
+    \ + 120))\n\n    def execute_complete(self, context, event=None):\n        if\
+    \ not event or not event.get(\"name\"):\n            raise AirflowException(\"\
+    Kubernetes Job trigger returned no result\")\n        self.job_name = event[\"\
+    name\"]\n        summary = None\n        try:\n            for pod_name, logs\
+    \ in self._hook().logs(self.job_name):\n                self.log.info(\"Pod %s\
+    \ (last 500 lines):\\n%s\", pod_name, logs)\n                for line in logs.splitlines():\n\
+    \                    if self.result_marker in line:\n                        summary\
+    \ = json.loads(line.split(self.result_marker, 1)[1])\n        except Exception\
+    \ as error:\n            self.log.warning(\"Job logs unavailable: %s\", type(error).__name__)\n\
+    \        if event.get(\"status\") != \"success\":\n            raise AirflowException(f\"\
+    Kubernetes Job {self.job_name}: {event.get('state')} \u2014 {event.get('message',\
+    \ '')}\")\n        return {\"job\": self.job_name, \"namespace\": self.namespace,\n\
+    \                \"profile\": self.execution_profile or self.compute_profile,\n\
+    \                \"metrics\": summary, \"state\": event.get(\"state\")}\n\n  \
+    \  def on_kill(self):\n        if self.job_name:\n            self._hook().delete(self.job_name)\n"
+  company_airflow__operators__spark.py: "\"\"\"Public Airflow interface for CompanySparkRuntime\
+    \ executions.\"\"\"\nfrom datetime import timedelta\nimport json\nimport time\n\
+    \nfrom airflow.sdk import BaseOperator\nfrom airflow.sdk.exceptions import AirflowException,\
+    \ AirflowSkipException\n\nfrom company_airflow.application import build_application,\
+    \ execution_name\nfrom company_airflow.hooks.spark_kubernetes import SparkApplicationHook\n\
+    from company_airflow.status import application_result\nfrom company_airflow.triggers.spark\
+    \ import SparkApplicationTrigger\n\n\nclass CompanySparkOperator(BaseOperator):\n\
+    \    \"\"\"Run a wheel with the Apache Spark Operator (spark.apache.org/v1).\n\
+    \n    Parameters must contain secret references, never secret values. The generic\n\
+    \    runtime owns wheel loading; Airflow never imports the ingestion engine.\n\
+    \    \"\"\"\n    template_fields = (\"parameters\", \"compute_profile\", \"wheel_url\"\
+    , \"wheel_sha256\", \"enabled\")\n    template_fields_renderers = {\"parameters\"\
+    : \"json\"}\n    ui_color = \"#E6F2FA\"\n\n    def __init__(self, *, parameters,\
+    \ wheel_url, compute_profile=\"small\",\n                 runtime=\"company-spark-runtime:0.1.0\"\
+    , spark_version=\"4.2.0\",\n                 namespace=\"spark-lab\", entrypoint=\"\
+    company_ingestion.entrypoint:main\",\n                 wheel_sha256=None, spark_conf=None,\
+    \ timeout_seconds=3600,\n                 poll_interval=10, in_cluster=True, kube_context=None,\n\
+    \                 enabled=True, **kwargs):\n        super().__init__(**kwargs)\n\
+    \        self.parameters = parameters\n        self.wheel_url = wheel_url\n  \
+    \      self.compute_profile = compute_profile\n        self.runtime = runtime\n\
+    \        self.spark_version = spark_version\n        self.namespace = namespace\n\
+    \        self.entrypoint = entrypoint\n        self.wheel_sha256 = wheel_sha256\n\
+    \        self.spark_conf = spark_conf\n        self.timeout_seconds = timeout_seconds\n\
+    \        self.poll_interval = poll_interval\n        self.in_cluster = in_cluster\n\
+    \        self.kube_context = kube_context\n        self.enabled = enabled\n  \
+    \      self.application_name = None\n\n    def _hook(self):\n        return SparkApplicationHook(self.namespace,\
+    \ self.in_cluster, self.kube_context)\n\n    def execute(self, context):\n   \
+    \     if str(self.enabled).lower() in {\"false\", \"0\", \"none\"}:\n        \
+    \    raise AirflowSkipException(\"Dataset was not selected for this benchmark\"\
+    )\n        ti = context[\"ti\"]\n        self.application_name = execution_name(ti.dag_id,\
+    \ ti.task_id, context[\"run_id\"], ti.try_number)\n        body = build_application(\n\
+    \            name=self.application_name, namespace=self.namespace, runtime=self.runtime,\n\
+    \            spark_version=self.spark_version, wheel_url=self.wheel_url,\n   \
+    \         wheel_sha256=self.wheel_sha256, parameters=self.parameters,\n      \
+    \      compute_profile=self.compute_profile, entrypoint=self.entrypoint, spark_conf=self.spark_conf)\n\
+    \        app = self._hook().submit(body)\n        self.log.info(\"SparkApplication\
+    \ %s submitted/reattached in %s; profile=%s\",\n                      self.application_name,\
+    \ self.namespace, self.compute_profile)\n        self.log.info(\"History UI: http://localhost:18080\
+    \ ; benchmark dashboard: http://localhost:3000\")\n        ti.xcom_push(key=\"\
+    spark_application\", value=self.application_name)\n        result = application_result(app)\n\
+    \        if result:\n            return self.execute_complete(context, {\"name\"\
+    : self.application_name, **result})\n        self.defer(\n            trigger=SparkApplicationTrigger(\n\
+    \                name=self.application_name, namespace=self.namespace,\n     \
+    \           deadline=time.time() + self.timeout_seconds, poll_interval=self.poll_interval,\n\
+    \                in_cluster=self.in_cluster, kube_context=self.kube_context),\n\
+    \            method_name=\"execute_complete\", timeout=timedelta(seconds=self.timeout_seconds\
+    \ + 120))\n\n    def execute_complete(self, context, event=None):\n        if\
+    \ not event or not event.get(\"name\"):\n            raise AirflowException(\"\
+    Spark trigger returned no application result\")\n        self.application_name\
+    \ = event[\"name\"]\n        summary = None\n        try:\n            for pod_name,\
+    \ logs in self._hook().driver_logs(self.application_name):\n                self.log.info(\"\
+    Driver %s (last 500 lines):\\n%s\", pod_name, logs)\n                for line\
+    \ in logs.splitlines():\n                    if \"COMPANY_INGESTION_RESULT=\"\
+    \ in line:\n                        summary = json.loads(line.split(\"COMPANY_INGESTION_RESULT=\"\
+    , 1)[1])\n        except Exception as error:\n            self.log.warning(\"\
+    Driver logs unavailable (%s); check persisted event logs\", type(error).__name__)\n\
+    \        if event.get(\"status\") != \"success\":\n            if event.get(\"\
+    state\") in {\"TimedOut\", \"MonitoringFailed\"}:\n                try:\n    \
+    \                self._hook().delete(self.application_name)\n                except\
+    \ Exception:\n                    self.log.exception(\"Could not delete failed\
+    \ SparkApplication %s\", self.application_name)\n            raise AirflowException(f\"\
+    Spark {self.application_name}: {event.get('state')} \u2014 {event.get('message',\
+    \ '')}\")\n        self.log.info(\"Spark execution succeeded: %s\", self.application_name)\n\
+    \        return {\"application\": self.application_name, \"namespace\": self.namespace,\n\
+    \                \"profile\": self.compute_profile, \"metrics\": summary, \"state\"\
+    : event.get(\"state\")}\n\n    def on_kill(self):\n        if self.application_name:\n\
+    \            self._hook().delete(self.application_name)\n"
+  company_airflow__status.py: "\"\"\"Apache spark.apache.org/v1 status, deliberately\
+    \ independent of Kubeflow APIs.\"\"\"\n\nFAILURES = {\n    \"Failed\", \"DriverStartTimedOut\"\
+    , \"DriverReadyTimedOut\", \"ExecutorsStartTimedOut\",\n    \"SchedulingFailure\"\
+    , \"DriverEvicted\",\n}\nTERMINATED = {\"ResourceReleased\", \"TerminatedWithoutReleaseResources\"\
+    }\n\n\ndef application_result(application: dict) -> dict | None:\n    \"\"\"Return\
+    \ a terminal result, or None. Resource cleanup alone is never success.\n\n   \
+    \ Operator retries are disabled in our manifests. Airflow owns retries, so any\n\
+    \    observed failure is definitive for this SparkApplication.\n    \"\"\"\n \
+    \   status = application.get(\"status\") or {}\n    current = status.get(\"currentState\"\
+    ) or {}\n    state = current.get(\"currentStateSummary\", \"Submitted\")\n   \
+    \ if state == \"Succeeded\" or state in FAILURES:\n        return {\"status\"\
+    : \"success\" if state == \"Succeeded\" else \"error\",\n                \"state\"\
+    : state, \"message\": current.get(\"message\", \"\")}\n    if state not in TERMINATED:\n\
+    \        return None\n    history = status.get(\"stateTransitionHistory\") or\
+    \ {}\n    for _, event in sorted(history.items(), key=lambda item: int(item[0]),\
+    \ reverse=True):\n        previous = event.get(\"currentStateSummary\")\n    \
+    \    if previous == \"Succeeded\" or previous in FAILURES:\n            return\
+    \ {\"status\": \"success\" if previous == \"Succeeded\" else \"error\",\n    \
+    \                \"state\": previous, \"message\": event.get(\"message\", \"\"\
+    )}\n    return {\"status\": \"error\", \"state\": state,\n            \"message\"\
+    : \"Application terminated without a preserved success/failure state\"}\n"
+  company_airflow__triggers____init__.py: ''
+  company_airflow__triggers__job.py: "\"\"\"Wait for a Kubernetes Job without holding\
+    \ an Airflow worker slot.\"\"\"\nimport asyncio\nimport time\n\nfrom airflow.triggers.base\
+    \ import BaseTrigger, TriggerEvent\n\nfrom company_airflow.hooks.kubernetes_job\
+    \ import KubernetesJobHook\nfrom company_airflow.job import job_result\n\n\nclass\
+    \ KubernetesJobTrigger(BaseTrigger):\n    def __init__(self, *, name, namespace,\
+    \ deadline, poll_interval=5,\n                 in_cluster=True, kube_context=None):\n\
+    \        super().__init__()\n        self.name, self.namespace, self.deadline\
+    \ = name, namespace, deadline\n        self.poll_interval, self.in_cluster, self.kube_context\
+    \ = poll_interval, in_cluster, kube_context\n\n    def serialize(self):\n    \
+    \    return (\"company_airflow.triggers.job.KubernetesJobTrigger\", {\n      \
+    \      \"name\": self.name, \"namespace\": self.namespace, \"deadline\": self.deadline,\n\
+    \            \"poll_interval\": self.poll_interval, \"in_cluster\": self.in_cluster,\n\
+    \            \"kube_context\": self.kube_context,\n        })\n\n    async def\
+    \ run(self):\n        hook = await asyncio.to_thread(KubernetesJobHook, self.namespace,\
+    \ self.in_cluster, self.kube_context)\n        errors = 0\n        while time.time()\
+    \ < self.deadline:\n            try:\n                result = job_result(await\
+    \ asyncio.to_thread(hook.get, self.name))\n                errors = 0\n      \
+    \          if result:\n                    yield TriggerEvent({\"name\": self.name,\
+    \ **result})\n                    return\n            except Exception as error:\n\
+    \                errors += 1\n                self.log.warning(\"Job state lookup\
+    \ failed (%s/6): %s\", errors, type(error).__name__)\n                if errors\
+    \ >= 6:\n                    yield TriggerEvent({\"name\": self.name, \"status\"\
+    : \"error\", \"state\": \"MonitoringFailed\",\n                              \
+    \          \"message\": f\"Cannot query Kubernetes: {type(error).__name__}\"})\n\
+    \                    return\n            await asyncio.sleep(self.poll_interval)\n\
+    \        try:\n            await asyncio.to_thread(hook.delete, self.name)\n \
+    \           message = \"Kubernetes Job timed out; deletion requested\"\n     \
+    \   except Exception as error:\n            message = f\"Kubernetes Job timed\
+    \ out; cleanup failed: {type(error).__name__}\"\n        yield TriggerEvent({\"\
+    name\": self.name, \"status\": \"error\", \"state\": \"TimedOut\", \"message\"\
+    : message})\n"
+  company_airflow__triggers__spark.py: "\"\"\"Wait for Spark without holding an Airflow\
+    \ worker slot.\"\"\"\nimport asyncio\nimport time\n\nfrom airflow.triggers.base\
+    \ import BaseTrigger, TriggerEvent\n\nfrom company_airflow.hooks.spark_kubernetes\
+    \ import SparkApplicationHook\nfrom company_airflow.status import application_result\n\
+    \n\nclass SparkApplicationTrigger(BaseTrigger):\n    def __init__(self, *, name,\
+    \ namespace, deadline, poll_interval=10,\n                 in_cluster=True, kube_context=None):\n\
+    \        super().__init__()\n        self.name = name\n        self.namespace\
+    \ = namespace\n        self.deadline = deadline\n        self.poll_interval =\
+    \ poll_interval\n        self.in_cluster = in_cluster\n        self.kube_context\
+    \ = kube_context\n\n    def serialize(self):\n        return (\"company_airflow.triggers.spark.SparkApplicationTrigger\"\
+    , {\n            \"name\": self.name, \"namespace\": self.namespace, \"deadline\"\
+    : self.deadline,\n            \"poll_interval\": self.poll_interval, \"in_cluster\"\
+    : self.in_cluster,\n            \"kube_context\": self.kube_context,\n       \
+    \ })\n\n    async def run(self):\n        hook = await asyncio.to_thread(SparkApplicationHook,\
+    \ self.namespace, self.in_cluster, self.kube_context)\n        errors = 0\n  \
+    \      while time.time() < self.deadline:\n            try:\n                app\
+    \ = await asyncio.to_thread(hook.get, self.name)\n                errors = 0\n\
+    \                result = application_result(app)\n                if result:\n\
+    \                    yield TriggerEvent({\"name\": self.name, **result})\n   \
+    \                 return\n            except Exception as error:\n           \
+    \     errors += 1\n                self.log.warning(\"Spark state lookup failed\
+    \ (%s/6): %s\", errors, type(error).__name__)\n                if errors >= 6:\n\
+    \                    yield TriggerEvent({\"name\": self.name, \"status\": \"error\"\
+    , \"state\": \"MonitoringFailed\",\n                                        \"\
+    message\": f\"Cannot query Kubernetes: {type(error).__name__}\"})\n          \
+    \          return\n            await asyncio.sleep(self.poll_interval)\n     \
+    \   # Deadline is persisted in trigger arguments, so a triggerer restart cannot\
+    \ reset it.\n        try:\n            await asyncio.to_thread(hook.delete, self.name)\n\
+    \            message = \"Spark execution timed out; application deletion requested\"\
+    \n        except Exception as error:\n            message = f\"Spark execution\
+    \ timed out; cleanup failed: {type(error).__name__}\"\n        yield TriggerEvent({\"\
+    name\": self.name, \"status\": \"error\", \"state\": \"TimedOut\", \"message\"\
+    : message})\n"
+  dags__company_ingestion_benchmark.py: "\"\"\"Manual benchmark: table and compute\
+    \ profile are the only tuning inputs.\"\"\"\nimport os\nfrom datetime import datetime,\
+    \ timedelta, timezone\nfrom airflow.sdk import DAG, Param\nfrom company_airflow.operators.spark\
+    \ import CompanySparkOperator\n\nwith DAG(\n    dag_id=\"company_ingestion_benchmark\"\
+    ,\n    description=\"SQL Server \u2192 Delta: metadata-adaptive ingestion on Minikube\"\
+    ,\n    start_date=datetime(2026, 1, 1, tzinfo=timezone.utc), schedule=None, catchup=False,\n\
+    \    max_active_runs=1, render_template_as_native_obj=True,\n    params={\"table\"\
+    : Param(\"all\", type=\"string\", enum=[\"all\", \"small\", \"medium\", \"wide\"\
+    ]),\n            \"compute_profile\": Param(\"small\", type=\"string\", enum=[\"\
+    small\", \"medium\"])},\n    tags=[\"company-spark\", \"benchmark\", \"delta\"\
+    ],\n    doc_md=\"\"\"Choose **Trigger DAG**, then a dataset and compute profile.\
+    \ No source partition column or partition count is supplied.\n\nResults: Grafana\
+    \ http://localhost:3000 \xB7 Spark History http://localhost:18080.\nEach task\
+    \ logs its selected plan and a JSON result, also returned through XCom.\n\"\"\"\
+    ,\n) as dag:\n    previous = None\n    for table in [\"small\", \"medium\", \"\
+    wide\"]:\n        task = CompanySparkOperator(\n            task_id=f\"ingest_{table}\"\
+    ,\n            enabled=\"{{ params.table in ['all', '\" + table + \"'] }}\",\n\
+    \            compute_profile=\"{{ params.compute_profile }}\",\n            wheel_url=\"\
+    http://artifacts:8080/company_ingestion-0.6.0-py3-none-any.whl\",\n          \
+    \  wheel_sha256=os.environ.get(\"COMPANY_WHEEL_SHA256\"),\n            parameters={\n\
+    \                \"source\": {\"type\": \"sqlserver\", \"host\": \"sqlserver\"\
+    , \"database\": \"Benchmark\", \"schema\": \"dbo\", \"table\": table,\n      \
+    \                     \"trust_server_certificate\": True},\n                \"\
+    destination\": {\"format\": \"delta\", \"uri\": f\"s3a://lakehouse/bronze/{table}\"\
+    },\n                \"planner\": {\"max_connections\": 8, \"target_partition_bytes\"\
+    : 8388608},\n                \"metrics\": {\"pushgateway\": \"http://pushgateway:9091\"\
+    , \"output_uri\": \"s3a://metrics/runs\"},\n            },\n            timeout_seconds=1800,\
+    \ retries=0,\n            trigger_rule=\"none_failed\", execution_timeout=timedelta(minutes=35),\n\
+    \        )\n        if previous is not None:\n            previous >> task\n \
+    \       previous = task\n"
+  dags__company_ingestion_dlt_benchmark.py: "\"\"\"Manual dltHub benchmark executed\
+    \ as generic Kubernetes Jobs.\"\"\"\nfrom datetime import datetime, timedelta,\
+    \ timezone\n\nfrom airflow.sdk import DAG, Param\nfrom company_airflow.operators.enterprise_k8s\
+    \ import EnterpriseK8sOperator\n\nsecrets = [\n    {\"name\": \"SQLSERVER_USER\"\
+    , \"secret\": \"sqlserver-credentials\", \"key\": \"username\"},\n    {\"name\"\
+    : \"SQLSERVER_PASSWORD\", \"secret\": \"sqlserver-credentials\", \"key\": \"password\"\
+    },\n    {\"name\": \"AWS_ACCESS_KEY_ID\", \"secret\": \"seaweedfs-credentials\"\
+    , \"key\": \"access_key\"},\n    {\"name\": \"AWS_SECRET_ACCESS_KEY\", \"secret\"\
+    : \"seaweedfs-credentials\", \"key\": \"secret_key\"},\n]\n\nwith DAG(\n    dag_id=\"\
+    company_ingestion_dlt_benchmark\",\n    description=\"SQL Server \u2192 Delta\
+    \ with dltHub in a generic Kubernetes Job\",\n    start_date=datetime(2026, 1,\
+    \ 1, tzinfo=timezone.utc), schedule=None, catchup=False,\n    max_active_runs=1,\
+    \ render_template_as_native_obj=True,\n    params={\"table\": Param(\"all\", type=\"\
+    string\", enum=[\"all\", \"small\", \"medium\", \"wide\"]),\n            \"compute_profile\"\
+    : Param(\"small\", type=\"string\", enum=[\"small\", \"medium\"])},\n    tags=[\"\
+    company-k8s\", \"dlt\", \"benchmark\", \"delta\"],\n    doc_md=\"\"\"Runs the\
+    \ same SQL Server fixtures as the Spark benchmark through dltHub.\n\nThe workload\
+    \ is a regular Kubernetes Job created by `EnterpriseK8sOperator`.\nResults use\
+    \ the same Prometheus metric names with `engine=dlt` and are persisted under `s3://metrics/runs-dlt/`.\n\
+    \"\"\",\n) as dag:\n    previous = None\n    for table in [\"small\", \"medium\"\
+    , \"wide\"]:\n        task = EnterpriseK8sOperator(\n            task_id=f\"ingest_{table}\"\
+    ,\n            image=\"company-dlt-ingestion:0.6.0\",\n            enabled=\"\
+    {{ params.table in ['all', '\" + table + \"'] }}\",\n            compute_profile=\"\
+    {{ params.compute_profile }}\",\n            configuration={\n               \
+    \ \"source\": {\"type\": \"sqlserver\", \"host\": \"sqlserver\", \"port\": 1433,\n\
+    \                           \"database\": \"Benchmark\", \"schema\": \"dbo\",\
+    \ \"table\": table},\n                \"destination\": {\"format\": \"delta\"\
+    , \"uri\": f\"s3://lakehouse/dlt/bronze/{table}\"},\n                \"storage\"\
+    : {\"endpoint_url\": \"http://seaweedfs:8333\"},\n                \"extract\"\
+    : {\"backend\": \"pyarrow\", \"chunk_size\": 50000},\n                \"metrics\"\
+    : {\"pushgateway\": \"http://pushgateway:9091\"},\n            },\n          \
+    \  env={\"AWS_REGION\": \"us-east-1\", \"DLT_TELEMETRY\": \"false\"},\n      \
+    \      secret_env=secrets,\n            timeout_seconds=1800, retries=0,\n   \
+    \         trigger_rule=\"none_failed\", execution_timeout=timedelta(minutes=35),\n\
+    \        )\n        if previous is not None:\n            previous >> task\n \
+    \       previous = task\n"
+  dags__company_ingestion_dlt_distributed.py: "\"\"\"Driver-coordinated distributed\
+    \ dltHub ingestion on Kubernetes.\"\"\"\n\nfrom datetime import datetime, timedelta,\
+    \ timezone\n\nfrom airflow.sdk import DAG, Param\nfrom company_airflow.operators.enterprise_ingestion\
+    \ import EnterpriseIngestionOperator\n\n\nwith DAG(\n    dag_id=\"company_ingestion_dlt_distributed\"\
+    ,\n    description=\"SQL Server \u2192 Delta with one isolated driver and adaptive\
+    \ dlt workers\",\n    start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),\n\
+    \    schedule=None,\n    catchup=False,\n    max_active_runs=1,\n    render_template_as_native_obj=True,\n\
+    \    params={\n        \"table\": Param(\"wide\", type=\"string\", enum=[\"small\"\
+    , \"medium\", \"wide\"]),\n        \"compute_profile\": Param(\"small\", type=\"\
+    string\", enum=[\"small\", \"medium\"]),\n        \"max_workers\": Param(4, type=\"\
+    integer\", minimum=1, maximum=8),\n    },\n    tags=[\"company-k8s\", \"dlt\"\
+    , \"distributed\", \"delta\"],\n    doc_md=\"\"\"A single Airflow task starts\
+    \ an isolated Driver Job.\n\nThe driver discovers SQL Server metadata, creates\
+    \ an adaptive Indexed Job,\nvalidates immutable chunk manifests and publishes\
+    \ one Delta snapshot.\n\"\"\",\n) as dag:\n    EnterpriseIngestionOperator(\n\
+    \        task_id=\"ingest_table\",\n        image=\"company-dlt-ingestion:0.6.0\"\
+    ,\n        compute_profile=\"{{ params.compute_profile }}\",\n        source={\n\
+    \            \"type\": \"sqlserver\",\n            \"host\": \"sqlserver\",\n\
+    \            \"port\": 1433,\n            \"database\": \"Benchmark\",\n     \
+    \       \"schema\": \"dbo\",\n            \"table\": \"{{ params.table }}\",\n\
+    \        },\n        destination={\n            \"format\": \"delta\",\n     \
+    \       \"uri\": \"s3://lakehouse/dlt-distributed/bronze/{{ params.table }}\"\
+    ,\n        },\n        execution={\n            \"max_workers\": \"{{ params.max_workers\
+    \ }}\",\n            \"max_source_connections\": \"{{ params.max_workers }}\"\
+    ,\n            \"max_chunks\": 64,\n            \"extract_backend\": \"mssql_arrow\"\
+    ,\n            \"target_chunk_bytes\": \"auto\",\n            \"fetch_size\":\
+    \ \"auto\",\n            \"target_file_bytes\": 256 * 1024 * 1024,\n         \
+    \   \"control_uri\": \"s3://ingestion-control/runs\",\n        },\n        storage={\"\
+    endpoint_url\": \"http://seaweedfs:8333\"},\n        validation={\"require_source_row_match\"\
+    : True},\n        metrics={\n            \"output_uri\": \"s3://metrics/runs-dlt-distributed\"\
+    ,\n            \"pushgateway\": \"http://pushgateway:9091\",\n        },\n   \
+    \     timeout_seconds=3600,\n        retries=0,\n        execution_timeout=timedelta(minutes=65),\n\
+    \    )\n"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sqlserver-data
+  namespace: spark-lab
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqlserver
+  namespace: spark-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sqlserver
+  template:
+    metadata:
+      labels:
+        app: sqlserver
+    spec:
+      containers:
+      - name: sqlserver
+        image: mcr.microsoft.com/mssql/server:2025-latest@sha256:2b5b581621126574f3d1f75e78d3eebe8d05aedb59ad0cfdf9aa42cb0634d726
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 1433
+        resources:
+          requests:
+            cpu: 500m
+            memory: 3Gi
+          limits:
+            memory: 4Gi
+        env:
+        - name: ACCEPT_EULA
+          value: 'Y'
+        - name: MSSQL_PID
+          value: Developer
+        - name: MSSQL_MEMORY_LIMIT_MB
+          value: '3072'
+        - name: MSSQL_SA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: sqlserver-admin
+              key: password
+        volumeMounts:
+        - name: data
+          mountPath: /var/opt/mssql
+        readinessProbe:
+          tcpSocket:
+            port: 1433
+          initialDelaySeconds: 20
+          periodSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: sqlserver-data
+      securityContext:
+        fsGroup: 10001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqlserver
+  namespace: spark-lab
+spec:
+  selector:
+    app: sqlserver
+  ports:
+  - port: 1433
+    targetPort: 1433
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-data
+  namespace: spark-lab
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs
+  namespace: spark-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: seaweedfs
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+    spec:
+      containers:
+      - name: seaweedfs
+        image: chrislusf/seaweedfs:4.47
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8333
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+        env: []
+        args:
+        - server
+        - -dir=/data
+        - -ip=seaweedfs
+        - -ip.bind=0.0.0.0
+        - -master.volumeSizeLimitMB=128
+        - -volume.max=256
+        - -s3
+        - -s3.port=8333
+        - -s3.config=/etc/seaweedfs/s3.json
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: auth
+          mountPath: /etc/seaweedfs
+          readOnly: true
+        readinessProbe:
+          tcpSocket:
+            port: 8333
+          periodSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: seaweedfs-data
+      - name: auth
+        secret:
+          secretName: seaweedfs-auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  namespace: spark-lab
+spec:
+  selector:
+    app: seaweedfs
+  ports:
+  - name: s3
+    port: 8333
+    targetPort: 8333
+  - name: volume
+    port: 8080
+    targetPort: 8080
+  - name: master
+    port: 9333
+    targetPort: 9333
+  - name: filer
+    port: 8888
+    targetPort: 8888
+  - name: master-grpc
+    port: 19333
+    targetPort: 19333
+  - name: volume-grpc
+    port: 18080
+    targetPort: 18080
+  - name: filer-grpc
+    port: 18888
+    targetPort: 18888
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artifacts
+  namespace: spark-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: artifacts
+  template:
+    metadata:
+      labels:
+        app: artifacts
+    spec:
+      containers:
+      - name: artifacts
+        image: python:3.12.12-slim
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        env: []
+        command:
+        - python
+        - -m
+        - http.server
+        - '8080'
+        - --directory
+        - /artifacts
+        volumeMounts:
+        - name: wheel
+          mountPath: /artifacts
+          readOnly: true
+      volumes:
+      - name: wheel
+        configMap:
+          name: ingestion-artifacts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifacts
+  namespace: spark-lab
+spec:
+  selector:
+    app: artifacts
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-data
+  namespace: spark-lab
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow
+  namespace: spark-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: airflow
+  template:
+    metadata:
+      labels:
+        app: airflow
+    spec:
+      containers:
+      - name: airflow
+        image: company-airflow:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            memory: 2500Mi
+        env:
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          value: 'false'
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: LocalExecutor
+        - name: AIRFLOW__CORE__PARALLELISM
+          value: '2'
+        - name: AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION
+          value: 'false'
+        - name: AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS
+          value: admin:admin
+        - name: AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE
+          value: /opt/airflow/data/passwords.json
+        - name: AIRFLOW__CORE__DAGS_FOLDER
+          value: /opt/company-live/dags
+        - name: PYTHONPATH
+          value: /opt/company-live
+        - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+          value: sqlite:////opt/airflow/data/airflow.db
+        - name: AIRFLOW__LOGGING__BASE_LOG_FOLDER
+          value: /opt/airflow/data/logs
+        - name: AIRFLOW__API__BASE_URL
+          value: http://localhost:8080
+        - name: AIRFLOW__CORE__EXECUTION_API_SERVER_URL
+          value: http://localhost:8080/execution/
+        - name: AIRFLOW__API_AUTH__JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: airflow-auth
+              key: jwt-secret
+        - name: COMPANY_WHEEL_SHA256
+          valueFrom:
+            configMapKeyRef:
+              name: ingestion-release
+              key: sha256
+        command:
+        - /bin/bash
+        - -ec
+        args:
+        - cp /opt/airflow/auth/passwords.json /opt/airflow/data/passwords.json; exec
+          airflow standalone
+        volumeMounts:
+        - name: data
+          mountPath: /opt/airflow/data
+        - name: auth
+          mountPath: /opt/airflow/auth
+          readOnly: true
+        - name: live-code
+          mountPath: /opt/company-live
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /api/v2/monitor/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: airflow-data
+      - name: auth
+        secret:
+          secretName: airflow-auth
+          items:
+          - key: passwords.json
+            path: passwords.json
+      - name: live-code
+        configMap:
+          name: airflow-live-code
+          items:
+          - key: company_airflow____init__.py
+            path: company_airflow/__init__.py
+          - key: company_airflow__application.py
+            path: company_airflow/application.py
+          - key: company_airflow__hooks____init__.py
+            path: company_airflow/hooks/__init__.py
+          - key: company_airflow__hooks__kubernetes_job.py
+            path: company_airflow/hooks/kubernetes_job.py
+          - key: company_airflow__hooks__spark_kubernetes.py
+            path: company_airflow/hooks/spark_kubernetes.py
+          - key: company_airflow__ingestion.py
+            path: company_airflow/ingestion.py
+          - key: company_airflow__job.py
+            path: company_airflow/job.py
+          - key: company_airflow__operators____init__.py
+            path: company_airflow/operators/__init__.py
+          - key: company_airflow__operators__enterprise_ingestion.py
+            path: company_airflow/operators/enterprise_ingestion.py
+          - key: company_airflow__operators__enterprise_k8s.py
+            path: company_airflow/operators/enterprise_k8s.py
+          - key: company_airflow__operators__spark.py
+            path: company_airflow/operators/spark.py
+          - key: company_airflow__status.py
+            path: company_airflow/status.py
+          - key: company_airflow__triggers____init__.py
+            path: company_airflow/triggers/__init__.py
+          - key: company_airflow__triggers__job.py
+            path: company_airflow/triggers/job.py
+          - key: company_airflow__triggers__spark.py
+            path: company_airflow/triggers/spark.py
+          - key: dags__company_ingestion_benchmark.py
+            path: dags/company_ingestion_benchmark.py
+          - key: dags__company_ingestion_dlt_benchmark.py
+            path: dags/company_ingestion_dlt_benchmark.py
+          - key: dags__company_ingestion_dlt_distributed.py
+            path: dags/company_ingestion_dlt_distributed.py
+      serviceAccountName: airflow
+      securityContext:
+        fsGroup: 0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow
+  namespace: spark-lab
+spec:
+  selector:
+    app: airflow
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow
+  namespace: spark-lab
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingestion-driver
+  namespace: spark-lab
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingestion-worker
+  namespace: spark-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-cleanup
+  namespace: spark-lab
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  - services
+  - configmaps
+  - persistentvolumeclaims
+  verbs:
+  - deletecollection
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-cleanup
+  namespace: spark-lab
+subjects:
+- kind: ServiceAccount
+  name: spark
+  namespace: spark-lab
+roleRef:
+  kind: Role
+  name: spark-cleanup
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: airflow-spark
+  namespace: spark-lab
+rules:
+- apiGroups:
+  - spark.apache.org
+  resources:
+  - sparkapplications
+  - sparkapplications/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - jobs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  - pods/log
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-spark
+  namespace: spark-lab
+subjects:
+- kind: ServiceAccount
+  name: airflow
+  namespace: spark-lab
+roleRef:
+  kind: Role
+  name: airflow-spark
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingestion-driver
+  namespace: spark-lab
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - jobs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingestion-driver
+  namespace: spark-lab
+subjects:
+- kind: ServiceAccount
+  name: ingestion-driver
+  namespace: spark-lab
+roleRef:
+  kind: Role
+  name: ingestion-driver
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,16 @@
+workloadResources:
+  namespaces:
+    create: false
+    data: [spark-lab]
+  serviceAccount:
+    name: spark
+operatorDeployment:
+  operatorPod:
+    operatorContainer:
+      resources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          cpu: '1'
+          memory: 1Gi

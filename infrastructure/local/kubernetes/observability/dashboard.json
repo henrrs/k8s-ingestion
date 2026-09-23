@@ -1,0 +1,806 @@
+{
+  "uid": "company-spark",
+  "title": "Company Ingestion \u2014 Spark \u00d7 dltHub",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "10s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Throughput da ingest\u00e3o \u2014 registros/s",
+      "description": "Linhas validadas / dura\u00e7\u00e3o de extra\u00e7\u00e3o e escrita Delta. N\u00e3o inclui inicializa\u00e7\u00e3o, planejamento ou leitura de valida\u00e7\u00e3o.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_throughput_rows_per_second{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rps",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Throughput de sa\u00edda Delta \u2014 bytes/s",
+      "description": "Bytes comprimidos dos arquivos de dados Delta / dura\u00e7\u00e3o de extra\u00e7\u00e3o+escrita. N\u00e3o representa tr\u00e1fego da origem.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_throughput_output_bytes_per_second{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Registros confirmados",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_rows{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Dura\u00e7\u00e3o por fase",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_duration_seconds{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{phase}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Parti\u00e7\u00f5es/paralelismo do motor",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_partitions{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Origem \u2014 bytes ESTIMADOS (p\u00e1ginas SQL Server)",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_source_estimated_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Destino \u2014 bytes efetivos de dados Delta",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_output_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Plano escolhido e justificativa",
+      "description": "",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_plan_info{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "CPU por pod \u2014 cores utilizados",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(pod) (rate(container_cpu_usage_seconds_total{namespace=\"spark-lab\",container!=\"\",container!=\"POD\"}[1m]))",
+          "legendFormat": "{{pod}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Mem\u00f3ria por pod \u2014 working set",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(pod) (container_memory_working_set_bytes{namespace=\"spark-lab\",container!=\"\",container!=\"POD\"})",
+          "legendFormat": "{{pod}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Chunks planejados",
+      "description": "Quantidade de chunks dur\u00e1veis produzidos pelo planner distribu\u00eddo.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "max by(engine,table,profile,run_id) (company_ingestion_chunks_total{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"})",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Dura\u00e7\u00e3o por chunk",
+      "description": "Permite observar skew entre os ranges processados pelos pods dlt.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 40,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_chunk_duration_seconds{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{table}} / chunk {{chunk_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Retries de chunks",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 40,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_retries_total{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Progresso dos chunks",
+      "description": "Percentual atualizado pelo Driver Job enquanto o Indexed Job executa.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "100 * company_ingestion_chunks_succeeded{job=\"company_ingestion_progress\",engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"} / company_ingestion_chunks_total{job=\"company_ingestion_progress\",engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Chunk alvo resolvido",
+      "description": "Tamanho de origem por chunk resolvido pelo planner ou informado manualmente.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_target_chunk_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Fetch size resolvido",
+      "description": "Quantidade de linhas por fetch resolvida pelo planner ou informada manualmente.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 56,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_fetch_size{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Amplifica\u00e7\u00e3o l\u00f3gica de escrita",
+      "description": "Bytes Parquet de staging mais bytes reescritos na publica\u00e7\u00e3o, divididos pelos bytes Delta ativos.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 56,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_data_write_amplification_ratio{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Tempo interno dos chunks",
+      "description": "Soma de CPU/tempo por opera\u00e7\u00e3o dos chunks; use para distinguir JDBC, materializa\u00e7\u00e3o Python e dlt/Parquet/upload.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(phase) (company_ingestion_chunk_phase_duration_seconds{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"})",
+          "legendFormat": "{{phase}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "engine",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(company_ingestion_rows, engine)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "table",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(company_ingestion_rows, table)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "profile",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(company_ingestion_rows, profile)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+.tools/
+.venv/
+.local/
+dist/
+build/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.env
+engines/spark/dependencies/jars/
+*.pyc

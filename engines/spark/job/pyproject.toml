@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "company-ingestion"
+version = "0.6.0"
+description = "Metadata-driven SQL Server ingestion into Delta Lake"
+requires-python = ">=3.10"
+dependencies = ["company-ingestion-core==0.1.0"]
+
+[project.scripts]
+company-ingestion = "company_ingestion.entrypoint:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../../../libraries/ingestion-core/src"]
