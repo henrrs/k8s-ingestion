@@ -1,13 +1,13 @@
 # Company Spark local lab
 
-Ambiente local para executar e comparar ingestões SQL Server → Delta Lake com
+Ambiente local para executar e comparar ingestões SQL Server/Oracle → Delta Lake com
 Airflow, Spark no Kubernetes e dltHub em Jobs genéricos no Minikube.
 
 O código está separado por responsabilidade: `engines/spark/job` contém o
 wheel Spark, `engines/dlt` contém a engine distribuída composável,
 `libraries/ingestion-core` contém o planner puro compartilhado,
 `orchestration/airflow` contém provider e DAGs, e `infrastructure/local`
-contém somente o laboratório Minikube/SQL Server/SeaweedFS. Veja a
+contém somente o laboratório Minikube/bancos/SeaweedFS. Veja a
 [organização completa](docs/architecture/repository-layout.md).
 
 ## Iniciar e observar
@@ -32,6 +32,7 @@ As interfaces ficam disponíveis somente em `127.0.0.1`:
 | SeaweedFS Filer | http://localhost:8888 | Interface web para navegar pelos arquivos armazenados |
 | SeaweedFS S3 | `http://localhost:8333` | API S3 autenticada usada por Delta, eventos e resumos JSON |
 | SQL Server | `localhost:1433` | Conexão via SSMS, Azure Data Studio, DBeaver ou `sqlcmd` |
+| Oracle Free | `localhost:1521` | Serviço `FREEPDB1`; conexão via DBeaver, SQLcl ou SQL*Plus |
 
 Airflow e Grafana usam o usuário `admin`. O SQL Server de benchmark usa banco
 `Benchmark`, schema `dbo` e usuário `ingestion`. As senhas locais são geradas
@@ -42,6 +43,7 @@ permissão `0600`. Para consultar uma senha sem imprimi-las todas:
 jq -r '.airflow' .local/credentials.json
 jq -r '.grafana' .local/credentials.json
 jq -r '.sqlserver_ingestion' .local/credentials.json
+jq -r '.oracle_ingestion' .local/credentials.json
 ```
 
 No Airflow, abra a DAG `company_ingestion_benchmark`, escolha **Trigger DAG** e
@@ -73,6 +75,23 @@ Referências do projeto:
 - [Observabilidade e Spark UI ao vivo](docs/operations/observability.md)
 - [Arquitetura e critérios da comparação Spark × dltHub](docs/benchmarks/spark-dlt-comparison.md)
 - [Ingestão distribuída com Driver Job](docs/architecture/distributed-driver-job.md)
+- [Ingestão Oracle colunar e distribuída](docs/architecture/oracle-columnar-ingestion.md)
+
+O aceite Oracle inicial não depende do Airflow:
+
+```bash
+# uma única vez em um host Ubuntu/Debian novo; solicita sudo
+bash tools/setup-host.sh
+
+# em um terminal novo: sobe o laboratório mínimo e executa o E2E completo
+bash tools/bootstrap-oracle-e2e.sh
+```
+
+O fluxo sobe `BENCHMARK.WIDE` com 1 milhão de linhas e 48 colunas, faz discovery,
+gera o plano adaptativo, cria workers persistentes e publica Delta no SeaweedFS.
+Use `ROWS=2000000 WORKERS=8 bash tools/bootstrap-oracle-e2e.sh` para variar o
+experimento. Depois do primeiro bootstrap, os alvos separados `make oracle-seed`
+e `make oracle-e2e` continuam disponíveis.
 
 Para observar o cluster pelo terminal:
 

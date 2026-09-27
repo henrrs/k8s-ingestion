@@ -36,6 +36,9 @@ def run_driver(config=None):
     try:
         phase = time.perf_counter()
         plan = build_plan(config, store, components.source)
+        backend = config.execution.get("extract_backend") or (
+            components.source.default_backend
+        )
         durations["planning"] = time.perf_counter() - phase
         print("COMPANY_INGESTION_PLAN=" + json.dumps(plan), flush=True)
         phase = time.perf_counter()
@@ -87,19 +90,20 @@ def run_driver(config=None):
             "run_id": config.run_id,
             "profile": config.profile,
             "table": config.source["table"],
-            "database": config.source["database"],
+            "database": config.source.get("database")
+            or config.source.get("service_name"),
             "schema": config.source["schema"],
             "destination": config.final_uri,
             "worker_job": worker_name,
             "execution_model": "persistent-workers-v1",
             "components": {
                 "source": config.source["type"],
-                "reader": config.execution.get("extract_backend", "mssql_arrow"),
+                "reader": backend,
                 "encoder": config.execution.get("encoder", "dlt_parquet"),
                 "store": config.storage.get("type", "s3"),
                 "publisher": config.destination.get("format", "delta"),
             },
-            "extract_backend": config.execution.get("extract_backend", "mssql_arrow"),
+            "extract_backend": backend,
             "worker_count": plan["parallelism"],
             "plan": plan,
             "chunks": manifests,

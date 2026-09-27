@@ -1,0 +1,293 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spark-lab
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-data
+  namespace: spark-lab
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs
+  namespace: spark-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: seaweedfs
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+    spec:
+      containers:
+      - name: seaweedfs
+        image: chrislusf/seaweedfs:4.47
+        args:
+        - server
+        - -dir=/data
+        - -ip=seaweedfs
+        - -ip.bind=0.0.0.0
+        - -master.volumeSizeLimitMB=128
+        - -volume.max=256
+        - -s3
+        - -s3.port=8333
+        - -s3.config=/etc/seaweedfs/s3.json
+        ports:
+        - containerPort: 8333
+        - containerPort: 8080
+        - containerPort: 9333
+        - containerPort: 8888
+        - containerPort: 19333
+        - containerPort: 18080
+        - containerPort: 18888
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+        readinessProbe:
+          tcpSocket:
+            port: 8333
+          periodSeconds: 5
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: auth
+          mountPath: /etc/seaweedfs
+          readOnly: true
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: seaweedfs-data
+      - name: auth
+        secret:
+          secretName: seaweedfs-auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  namespace: spark-lab
+spec:
+  selector:
+    app: seaweedfs
+  ports:
+  - name: s3
+    port: 8333
+    targetPort: 8333
+  - name: volume
+    port: 8080
+    targetPort: 8080
+  - name: master
+    port: 9333
+    targetPort: 9333
+  - name: filer
+    port: 8888
+    targetPort: 8888
+  - name: master-grpc
+    port: 19333
+    targetPort: 19333
+  - name: volume-grpc
+    port: 18080
+    targetPort: 18080
+  - name: filer-grpc
+    port: 18888
+    targetPort: 18888
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: oracle
+  namespace: spark-lab
+spec:
+  serviceName: oracle
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oracle
+  template:
+    metadata:
+      labels:
+        app: oracle
+    spec:
+      securityContext:
+        fsGroup: 54321
+      containers:
+      - name: oracle
+        image: gvenzl/oracle-free:23.26.3-slim-faststart@sha256:f5ff19033860d662c821cb04eb10483fa94f14f78eae252d054291ea07028093
+        ports:
+        - name: listener
+          containerPort: 1521
+        env:
+        - name: ORACLE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: oracle-admin
+              key: password
+        - name: APP_USER
+          valueFrom:
+            secretKeyRef:
+              name: oracle-credentials
+              key: username
+        - name: APP_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: oracle-credentials
+              key: password
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - /opt/oracle/healthcheck.sh
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oracle
+  namespace: spark-lab
+spec:
+  selector:
+    app: oracle
+  ports:
+  - name: listener
+    port: 1521
+    targetPort: 1521
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingestion-driver
+  namespace: spark-lab
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingestion-worker
+  namespace: spark-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingestion-driver
+  namespace: spark-lab
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - jobs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingestion-driver
+  namespace: spark-lab
+subjects:
+- kind: ServiceAccount
+  name: ingestion-driver
+  namespace: spark-lab
+roleRef:
+  kind: Role
+  name: ingestion-driver
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pushgateway-data
+  namespace: spark-lab
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pushgateway
+  namespace: spark-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pushgateway
+  template:
+    metadata:
+      labels:
+        app: pushgateway
+    spec:
+      containers:
+      - name: pushgateway
+        image: prom/pushgateway:v1.11.3
+        args:
+        - --persistence.file=/data/metrics
+        ports:
+        - containerPort: 9091
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            memory: 256Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: pushgateway-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pushgateway
+  namespace: spark-lab
+spec:
+  selector:
+    app: pushgateway
+  ports:
+  - name: http
+    port: 9091
+    targetPort: 9091

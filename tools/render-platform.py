@@ -62,6 +62,44 @@ deployment("sqlserver", "mcr.microsoft.com/mssql/server:2025-latest@sha256:2b5b5
     memory="3Gi", cpu="500m", limit_memory="4Gi", security={"fsGroup": 10001},
     readiness={"tcpSocket": {"port": 1433}, "initialDelaySeconds": 20, "periodSeconds": 5})
 
+# The community packaging removes the Oracle Container Registry login/EULA
+# gate while running the same Oracle AI Database 26ai Free binaries. The exact
+# multi-arch image digest keeps this laboratory reproducible.
+oracle_labels = {"app": "oracle"}
+objects.append({
+    "apiVersion": "apps/v1", "kind": "StatefulSet",
+    "metadata": {"name": "oracle", "namespace": NS},
+    "spec": {
+        "serviceName": "oracle", "replicas": 1,
+        "selector": {"matchLabels": oracle_labels},
+        "template": {
+            "metadata": {"labels": oracle_labels},
+            "spec": {"securityContext": {"fsGroup": 54321}, "containers": [{
+                "name": "oracle",
+                "image": "gvenzl/oracle-free:23.26.3-slim-faststart@sha256:f5ff19033860d662c821cb04eb10483fa94f14f78eae252d054291ea07028093",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [{"name": "listener", "containerPort": 1521}],
+                "env": [
+                    secret("ORACLE_PASSWORD", "oracle-admin", "password"),
+                    {"name": "APP_USER", "valueFrom": {"secretKeyRef": {
+                        "name": "oracle-credentials", "key": "username"}}},
+                    secret("APP_USER_PASSWORD", "oracle-credentials", "password"),
+                ],
+                "resources": {
+                    "requests": {"cpu": "500m", "memory": "2Gi"},
+                    "limits": {"cpu": "2", "memory": "4Gi"},
+                },
+                "readinessProbe": {
+                    "exec": {"command": ["/bin/bash", "-c", "/opt/oracle/healthcheck.sh"]},
+                    "initialDelaySeconds": 20, "periodSeconds": 10,
+                    "timeoutSeconds": 5, "failureThreshold": 30,
+                },
+            }]},
+        },
+    },
+})
+service("oracle", 1521)
+
 volume("seaweedfs-data", "3Gi")
 deployment("seaweedfs", "chrislusf/seaweedfs:4.47", 8333,
     args=["server", "-dir=/data", "-ip=seaweedfs", "-ip.bind=0.0.0.0", "-master.volumeSizeLimitMB=128",

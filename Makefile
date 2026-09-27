@@ -1,5 +1,9 @@
 SHELL := /bin/bash
-.PHONY: local-up ui spark-ui test core-build spark-job-build ingestion-build dlt-package-build artifacts-publish runtime-build dlt-build airflow-build seed status benchmark-report metrics-replay local-stop
+.PHONY: host-setup oracle-e2e-bootstrap local-up ui spark-ui test core-build spark-job-build ingestion-build dlt-package-build artifacts-publish runtime-build dlt-build airflow-build seed oracle-up oracle-seed oracle-e2e status benchmark-report metrics-replay local-stop
+host-setup:
+	bash tools/setup-host.sh
+oracle-e2e-bootstrap:
+	bash tools/bootstrap-oracle-e2e.sh
 
 local-up:
 	bash tools/bootstrap-local.sh
@@ -32,6 +36,15 @@ airflow-build:
 seed:
 	python3 tools/generate-seed.py
 	python3 tools/seed-sqlserver.py
+oracle-up:
+	python3 tools/configure-secrets.py
+	.venv/bin/python tools/render-platform.py
+	.tools/bin/kubectl --context company-spark apply -f infrastructure/local/kubernetes/platform.yaml
+	.tools/bin/kubectl --context company-spark -n spark-lab rollout status statefulset/oracle --timeout=900s
+oracle-seed:
+	python3 tools/seed-oracle.py --rows $${ROWS:-1000000}
+oracle-e2e:
+	python3 tools/run-oracle-e2e.py --workers $${WORKERS:-4}
 status:
 	.tools/bin/kubectl --context company-spark get pods -A
 	.tools/bin/kubectl --context company-spark -n spark-lab get sparkapplications,jobs

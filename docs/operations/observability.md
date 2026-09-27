@@ -20,9 +20,20 @@ pelo driver e publica duração/sucesso por chunk quando cada worker termina. As
 métricas finais ganham o label `engine`, que permite comparar `spark`, `dlt` e
 `dlt-distributed` no mesmo painel.
 
-Cada chunk distribuído também separa conexão e execução SQL, fetch, conversão
-para objetos Python, setup do pipeline, normalização/Parquet/upload e listagem de
-objetos. O painel `Tempo interno dos chunks` mostra a soma dessas fases.
+Cada chunk distribuído também separa conexão, schema, execução SQL, fetch e
+handoff Arrow, além do setup do pipeline, Parquet/upload e listagem de objetos.
+O painel `Tempo interno dos chunks` mostra a soma dessas fases. O backend legado
+por linhas ainda publica a materialização de objetos Python quando selecionado.
+
+O benchmark Oracle pode ser acompanhado diretamente:
+
+```bash
+.tools/bin/kubectl --context company-spark -n spark-lab get jobs,pods -w
+.tools/bin/kubectl --context company-spark -n spark-lab logs -f job/<run-id>
+```
+
+`make oracle-e2e` já transmite o log do driver, incluindo o plano e o resultado,
+e os workers publicam progresso e fases no mesmo Pushgateway usado pelo painel.
 
 O History Server pode listar aplicações incompletas conforme relê os event logs,
 mas essa atualização é periódica. Para acompanhamento realmente vivo, a fonte

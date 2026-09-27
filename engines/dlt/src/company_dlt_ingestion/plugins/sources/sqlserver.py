@@ -73,6 +73,8 @@ class _Reader:
 
 
 class SqlServerArrowReader(_Reader):
+    columnar = True
+
     def __init__(self, source_config):
         super().__init__(source_config)
         self.client = arrow_connect(source_config)
@@ -103,6 +105,8 @@ class SqlServerArrowReader(_Reader):
 
 
 class SqlServerRowReader(_Reader):
+    columnar = False
+
     def __init__(self, source_config):
         super().__init__(source_config)
         self.engine = sqlalchemy_engine(source_config)
@@ -139,6 +143,7 @@ class SqlServerRowReader(_Reader):
 
 class SqlServerSourceAdapter:
     name = "sqlserver"
+    default_backend = "mssql_arrow"
 
     def __init__(self, source_config):
         missing = [
@@ -156,7 +161,7 @@ class SqlServerSourceAdapter:
             sqlalchemy_engine(self.config), self.config
         )
 
-    def reader(self, backend):
+    def reader(self, backend, plan=None):
         readers = {
             "mssql_arrow": SqlServerArrowReader,
             "sqlalchemy_rows": SqlServerRowReader,

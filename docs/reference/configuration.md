@@ -126,7 +126,7 @@ fases.
 | `max_workers` | `4` | Limite de pods dltHub persistentes desta execução. |
 | `max_source_connections` | `4` | Limite de consultas simultâneas ao banco. |
 | `max_chunks` | `128` | Limite de chunks duráveis do snapshot. |
-| `extract_backend` | `mssql_arrow` | `mssql_arrow` entrega lotes colunares nativos diretamente ao dlt; `sqlalchemy_rows` preserva o caminho legado `Row -> dict` para diagnóstico e compatibilidade. |
+| `extract_backend` | automático por origem | SQL Server usa `mssql_arrow`; Oracle usa `oracle_arrow`. `sqlalchemy_rows` preserva o caminho legado SQL Server `Row -> dict` para diagnóstico. |
 | `encoder` | `dlt_parquet` | Estratégia que transforma os lotes da origem em artefatos Parquet. Esta versão registra somente `dlt_parquet`. |
 | `target_chunk_bytes` | `auto` | `auto` usa linhas, bytes estimados e concorrência; um inteiro força o tamanho desejado. |
 | `fetch_size` | `auto` | `auto` calcula as linhas por lote a partir da largura média estimada. |
@@ -190,12 +190,12 @@ O contrato detalhado de estado, retry, RBAC e publicação está em
 
 ## Contrato do mini motor dltHub
 
-O contêiner em `engines/dlt` aceita SQL Server como origem e Delta em storage
+O contêiner em `engines/dlt` aceita SQL Server e Oracle como origens e Delta em storage
 S3 compatível como destino. O caminho efetivo é `<destination.uri>/<run_id>`.
 
 | Seção/campo | Obrigatório | Padrão | Descrição |
 |---|---:|---|---|
-| `source.type` | sim | — | Deve ser `sqlserver`. |
+| `source.type` | sim | — | `sqlserver` ou `oracle`. |
 | `source.host` | sim | — | DNS/IP da origem. |
 | `source.port` | não | `1433` | Porta TDS. |
 | `source.database` | sim | — | Banco. |
@@ -208,7 +208,8 @@ S3 compatível como destino. O caminho efetivo é `<destination.uri>/<run_id>`.
 | `extract.chunk_size` | não | `50000` | Linhas por lote extraído. |
 | `metrics.pushgateway` | não | nenhum | Endpoint de métricas. |
 
-As credenciais chegam somente por `SQLSERVER_USER`, `SQLSERVER_PASSWORD`,
+As credenciais chegam somente por variáveis referenciadas em Kubernetes Secrets:
+`SQLSERVER_USER`/`SQLSERVER_PASSWORD` ou `ORACLE_USER`/`ORACLE_PASSWORD`, além de
 `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`. O motor consulta contagem, páginas
 usadas e colunas, extrai em lotes PyArrow, faz o commit Delta, relê a tabela e
 publica o mesmo conjunto de métricas do Spark com `engine="dlt"`.
@@ -222,7 +223,7 @@ seções seguintes.
 
 | Campo | Obrigatório | Padrão | Descrição |
 |---|---:|---|---|
-| `type` | sim | — | Tecnologia da origem. Esta versão aceita `sqlserver`. |
+| `type` | sim | — | Tecnologia da origem: `sqlserver` ou `oracle`. |
 | `host` | sim | — | Host DNS ou IP do SQL Server. |
 | `port` | não | `1433` | Porta TCP/TDS. |
 | `database` | sim | — | Banco de dados. |
@@ -236,6 +237,27 @@ seções seguintes.
 
 O usuário precisa de `SELECT`, `VIEW DEFINITION` e permissão para consultar
 as DMVs de tamanho utilizadas pelo planner.
+
+### Campos de origem Oracle
+
+| Campo | Obrigatório | Padrão | Descrição |
+|---|---:|---|---|
+| `type` | sim | — | Deve ser `oracle`. |
+| `host` | sim | — | Host DNS ou IP do listener. |
+| `port` | não | `1521` | Porta TCP do listener. |
+| `service_name` | sim* | `source.database` | Service name, como `FREEPDB1`. Um dos dois campos deve existir. |
+| `database` | sim* | `source.service_name` | Nome lógico persistido nas métricas; também pode fornecer o service name. |
+| `schema` | sim | — | Owner da tabela. Identificadores comuns são normalizados para maiúsculas. |
+| `table` | sim | — | Tabela integral. |
+| `preserve_identifier_case` | não | `false` | Preserva a caixa para objetos criados com identificadores entre aspas. |
+| `user_env` | não | `ORACLE_USER` | Variável que contém o usuário. |
+| `password_env` | não | `ORACLE_PASSWORD` | Variável que contém a senha. |
+| `query_timeout_seconds` | não | `600` | Timeout de cada chamada ao banco. |
+
+O usuário Oracle precisa consultar a tabela e as views `ALL_TABLES`,
+`ALL_TAB_COLUMNS`, `ALL_INDEXES`, `ALL_IND_COLUMNS`, `ALL_CONSTRAINTS` e
+`ALL_OBJECTS`, além de executar `DBMS_FLASHBACK.GET_SYSTEM_CHANGE_NUMBER`. Cada
+worker lê a origem `AS OF SCN` usando o SCN gravado no plano.
 
 ### `destination`
 

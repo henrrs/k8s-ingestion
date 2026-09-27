@@ -7,7 +7,7 @@ from company_dlt_ingestion.application.config import DistributedConfig
 
 def test_builtin_component_matrix_is_explicit():
     register_builtin_components()
-    assert set(COMPONENTS.sources) == {"sqlserver"}
+    assert set(COMPONENTS.sources) == {"sqlserver", "oracle"}
     assert set(COMPONENTS.encoders) == {"dlt_parquet"}
     assert set(COMPONENTS.stores) == {"s3"}
     assert set(COMPONENTS.publishers) == {"delta"}

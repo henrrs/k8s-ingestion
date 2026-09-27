@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from .registry import COMPONENTS
 from ..plugins.encoders.dlt_parquet import DltParquetEncoder
 from ..plugins.publishers.delta import DeltaPublisher
+from ..plugins.sources.oracle import OracleSourceAdapter
 from ..plugins.sources.sqlserver import SqlServerSourceAdapter
 from ..plugins.stores.s3 import S3ObjectStore
 
@@ -12,6 +13,7 @@ from ..plugins.stores.s3 import S3ObjectStore
 def register_builtin_components():
     defaults = (
         ("sources", "sqlserver", SqlServerSourceAdapter),
+        ("sources", "oracle", OracleSourceAdapter),
         ("encoders", "dlt_parquet", DltParquetEncoder),
         ("stores", "s3", S3ObjectStore),
         ("publishers", "delta", DeltaPublisher),

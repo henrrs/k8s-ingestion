@@ -4,7 +4,7 @@ import re
 import pytest
 
 from company_ingestion_core.config import DistributedPlannerConfig, PlannerConfig
-from company_ingestion_core.planner import Column, HistogramStep, TableMetadata, adaptive_chunk_settings, adaptive_fetch_size, histogram_boundaries, interpolate, plan_distributed_read, plan_read, predicates_for
+from company_ingestion_core.planner import Column, HistogramStep, TableMetadata, adaptive_chunk_settings, adaptive_fetch_size, ansi_identifier, histogram_boundaries, interpolate, plan_distributed_read, plan_read, predicates_for
 
 def column(**kw):
     return Column(name="id", sql_type="bigint", index_id=1, clustered=True, unique=True, **kw)
@@ -65,6 +65,22 @@ def test_temporal_boundaries_are_supported():
 def test_identifier_escaping():
     c=Column("odd] column","int",index_id=1)
     assert predicates_for(c,[Decimal(5)])[0]=="[odd]] column] < 5"
+
+
+def test_oracle_plan_uses_ansi_identifiers_and_persists_snapshot():
+    result = plan_distributed_read(
+        metadata(size=512 * 1024**2),
+        DistributedPlannerConfig(
+            max_workers=4, max_source_connections=4,
+            target_chunk_bytes=64 * 1024**2,
+        ),
+        column(),
+        bounds=(Decimal(1), Decimal(1_000_000)),
+        identifier_renderer=ansi_identifier,
+        snapshot={"kind": "oracle_scn", "value": 123456},
+    )
+    assert result.predicates[0].startswith('"id" < ')
+    assert result.snapshot == {"kind": "oracle_scn", "value": 123456}
 
 def test_distributed_plan_separates_durable_chunks_from_concurrent_connections():
     cfg = DistributedPlannerConfig(

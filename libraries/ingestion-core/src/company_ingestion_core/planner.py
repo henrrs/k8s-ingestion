@@ -1,4 +1,4 @@
-"""Pure planner: metadata estimates and statistics determine JDBC predicates.
+"""Pure planner: metadata estimates and statistics determine range predicates.
 
 Statistics affect performance only: unbounded, disjoint predicates cover all keys
 even when the histogram is sampled or stale. No table-specific hints are accepted.
@@ -29,7 +29,13 @@ AUTO_MAX_FETCH_ROWS = 100_000
 
 
 def identifier(value):
+    """Quote a SQL Server identifier (kept as the compatibility default)."""
     return "[" + value.replace("]", "]]") + "]"
+
+
+def ansi_identifier(value):
+    """Quote an ANSI/Oracle identifier without changing its case."""
+    return '"' + value.replace('"', '""') + '"'
 
 
 @dataclass(frozen=True)
@@ -94,6 +100,7 @@ class DistributedReadPlan:
     fetch_size: int = 0
     chunk_size_mode: str = "manual"
     fetch_size_mode: str = "manual"
+    snapshot: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -187,8 +194,8 @@ def histogram_boundaries(steps, partitions, column):
     return sorted({b for b in boundaries if low < b <= high})
 
 
-def predicates_for(column, boundaries):
-    name = identifier(column.name)
+def predicates_for(column, boundaries, identifier_renderer=identifier):
+    name = identifier_renderer(column.name)
     points = sorted(set(boundaries))
     if not points:
         return ["1=1"]
@@ -202,7 +209,8 @@ def predicates_for(column, boundaries):
     return predicates
 
 
-def plan_read(metadata, config, column=None, histogram=(), bounds=None, warnings=()):
+def plan_read(metadata, config, column=None, histogram=(), bounds=None, warnings=(),
+              identifier_renderer=identifier):
     requested = max(1, min(config.max_connections, config.task_slots * 2, math.ceil(metadata.estimated_bytes / config.target_partition_bytes)))
     common = dict(estimated_rows=metadata.estimated_rows, estimated_source_bytes=metadata.estimated_bytes,
                   requested_partitions=requested, warnings=list(warnings))
@@ -213,7 +221,7 @@ def plan_read(metadata, config, column=None, histogram=(), bounds=None, warnings
         return ReadPlan("single_scan", ["1=1"], None, rationale="No leading numeric/date key on an enabled, unfiltered index. Avoid repeated full-table hash scans.", **common)
     boundaries = histogram_boundaries(histogram, requested, column)
     strategy = "histogram_ranges"
-    rationale = "Weighted SQL Server histogram quantiles on an indexed leading key; partition count follows estimated bytes and compute/connection budgets."
+    rationale = "Weighted catalog histogram quantiles on an indexed leading key; partition count follows estimated bytes and compute/connection budgets."
     if not boundaries and bounds and bounds[0] is not None and bounds[0] < bounds[1]:
         low, high = bounds
         boundaries = sorted({interpolate(low, high, i / requested, column) for i in range(1, requested)})
@@ -224,7 +232,13 @@ def plan_read(metadata, config, column=None, histogram=(), bounds=None, warnings
         return ReadPlan("single_scan", ["1=1"], column.name, rationale="Indexed key has no usable split points; a single scan avoids empty or overlapping tasks.", **common)
     if len(boundaries) + 1 < requested:
         common["warnings"].append("Heavy hitters/low cardinality reduced the partition count; ranges cannot split identical values.")
-    return ReadPlan(strategy, predicates_for(column, boundaries), column.name, rationale=rationale, **common)
+    return ReadPlan(
+        strategy,
+        predicates_for(column, boundaries, identifier_renderer),
+        column.name,
+        rationale=rationale,
+        **common,
+    )
 
 
 def adaptive_chunk_settings(metadata, config):
@@ -291,7 +305,8 @@ def desired_chunk_count(metadata, config):
 
 
 def plan_distributed_read(metadata, config: DistributedPlannerConfig, column=None,
-                          histogram=(), bounds=None, warnings=()):
+                          histogram=(), bounds=None, warnings=(),
+                          identifier_renderer=identifier, snapshot=None):
     """Plan durable chunks independently from concurrent source connections."""
     requested, target_chunk_bytes, chunk_size_mode = adaptive_chunk_settings(
         metadata, config
@@ -307,12 +322,15 @@ def plan_distributed_read(metadata, config: DistributedPlannerConfig, column=Non
         task_slots=max(1, math.ceil(requested / 2)),
         fetch_size=fetch_size,
     )
-    base = plan_read(metadata, base_config, column, histogram, bounds, warnings)
+    base = plan_read(
+        metadata, base_config, column, histogram, bounds, warnings,
+        identifier_renderer,
+    )
     parallelism = min(config.max_workers, config.max_source_connections,
                       base.partitions)
     rationale = base.rationale + (
         f" Durable chunks are independent from concurrency; at most {parallelism} "
-        "SQL Server connections run simultaneously."
+        "source connections run simultaneously."
     )
     return DistributedReadPlan(
         strategy=base.strategy,
@@ -327,5 +345,6 @@ def plan_distributed_read(metadata, config: DistributedPlannerConfig, column=Non
         fetch_size=fetch_size,
         chunk_size_mode=chunk_size_mode,
         fetch_size_mode=fetch_size_mode,
+        snapshot=dict(snapshot or {}),
         warnings=base.warnings,
     )

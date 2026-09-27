@@ -18,7 +18,8 @@ def build_plan(config, store, source):
             "run_id": config.run_id,
             "source": {
                 "type": config.source["type"],
-                "database": config.source["database"],
+                "database": config.source.get("database")
+                or config.source.get("service_name"),
                 "schema": config.source["schema"],
                 "table": config.source["table"],
             },

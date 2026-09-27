@@ -67,6 +67,7 @@ composition root. Ele resolve uma configuração em quatro componentes:
 
 ```text
 source.type=sqlserver              -> SqlServerSourceAdapter
+source.type=oracle                 -> OracleSourceAdapter
 execution.encoder=dlt_parquet      -> DltParquetEncoder
 storage.type=s3                    -> S3ObjectStore
 destination.format=delta           -> DeltaPublisher

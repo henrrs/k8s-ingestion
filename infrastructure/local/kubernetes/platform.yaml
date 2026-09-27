@@ -180,7 +180,7 @@ data:
     \            \"worker_resources\": deepcopy(JOB_PROFILES.get(compute_profile,\
     \ {})),\n            \"worker_env\": worker_env,\n            \"secret_env\":\
     \ secrets,\n            \"timeout_seconds\": timeout_seconds,\n        },\n  \
-    \  }\n\n"
+    \  }\n"
   company_airflow__job.py: "\"\"\"Build generic Kubernetes Jobs for containerized\
     \ enterprise workloads.\"\"\"\nfrom copy import deepcopy\nimport hashlib\nimport\
     \ json\nimport re\nfrom collections.abc import Mapping\n\nJOB_PROFILES = {\n \
@@ -662,6 +662,76 @@ spec:
   ports:
   - port: 1433
     targetPort: 1433
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: oracle
+  namespace: spark-lab
+spec:
+  serviceName: oracle
+  replicas: 1
+  selector:
+    matchLabels: &id001
+      app: oracle
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      securityContext:
+        fsGroup: 54321
+      containers:
+      - name: oracle
+        image: gvenzl/oracle-free:23.26.3-slim-faststart@sha256:f5ff19033860d662c821cb04eb10483fa94f14f78eae252d054291ea07028093
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: listener
+          containerPort: 1521
+        env:
+        - name: ORACLE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: oracle-admin
+              key: password
+        - name: APP_USER
+          valueFrom:
+            secretKeyRef:
+              name: oracle-credentials
+              key: username
+        - name: APP_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: oracle-credentials
+              key: password
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - /opt/oracle/healthcheck.sh
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oracle
+  namespace: spark-lab
+spec:
+  selector:
+    app: oracle
+  ports:
+  - port: 1521
+    targetPort: 1521
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

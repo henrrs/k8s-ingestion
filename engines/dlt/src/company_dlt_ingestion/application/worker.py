@@ -43,10 +43,9 @@ def extract_chunk(
     }
     phase_seconds = {**source_durations, **encoded.durations}
     source_seconds = sum(source_durations.values())
-    backend = config.execution.get("extract_backend", "mssql_arrow")
     transform_phase = (
         "dlt_arrow_parquet_upload"
-        if backend == "mssql_arrow"
+        if getattr(reader, "columnar", False)
         else "dlt_normalize_parquet_upload"
     )
     phase_seconds[transform_phase] = max(
@@ -100,8 +99,10 @@ def run_worker(config=None):
     pod_uid = os.environ["POD_UID"]
     plan = components.store.read_json(plan_uri(config))
     chunks = assigned_chunks(plan, worker_index)
-    backend = config.execution.get("extract_backend", "mssql_arrow")
-    reader = components.source.reader(backend)
+    backend = config.execution.get("extract_backend") or (
+        components.source.default_backend
+    )
+    reader = components.source.reader(backend, plan)
     processed = []
     skipped = []
     print(

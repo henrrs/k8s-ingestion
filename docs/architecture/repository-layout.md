@@ -4,14 +4,14 @@ A árvore separa código executável, orquestração, infraestrutura local,
 documentação e ferramentas de desenvolvimento.
 
 ```text
-manage-spark-local/
+k8s-ingestion/
 ├── engines/
 │   ├── dlt/                       # pacote e imagem do motor dlt distribuído
 │   │   ├── src/company_dlt_ingestion/
 │   │   │   ├── application/       # casos de uso driver, worker e planejamento
 │   │   │   ├── bootstrap/         # registro e composition root
 │   │   │   ├── core/              # portas estáveis entre componentes
-│   │   │   ├── plugins/           # SQL Server, dlt/Parquet, S3 e Delta
+│   │   │   ├── plugins/           # SQL Server/Oracle, dlt/Parquet, S3 e Delta
 │   │   │   └── infrastructure/    # Kubernetes e métricas
 │   │   ├── legacy/                 # benchmark de um pod, mantido para comparação
 │   │   └── tests/
@@ -30,6 +30,7 @@ manage-spark-local/
 ├── infrastructure/
 │   └── local/
 │       ├── kubernetes/            # manifests do laboratório Minikube
+│       ├── oracle/                 # fixture wide determinística Oracle
 │       └── sqlserver/             # fixture determinística de benchmark
 ├── tools/                         # build, bootstrap, UI e relatórios locais
 ├── docs/
@@ -83,6 +84,9 @@ flowchart TD
 | `make airflow-build` | Constrói a imagem local do Airflow com provider e DAGs. |
 | `make local-up` | Cria ou atualiza o laboratório completo. |
 | `make ui` | Restaura os port-forwards locais. |
+| `make oracle-up` | Aplica e aguarda o StatefulSet Oracle Free. |
+| `make oracle-seed` | Cria e analisa `BENCHMARK.WIDE`. |
+| `make oracle-e2e` | Executa o Driver Job Oracle sem Airflow. |
 
 Os manifests `platform.yaml` e `observability/manifests.yaml` são gerados por
 `tools/render-platform.py` e `tools/render-observability.py`. Mudanças

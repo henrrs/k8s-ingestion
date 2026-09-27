@@ -9,6 +9,11 @@ from company_dlt_ingestion.bootstrap.entrypoint import (
     assigned_chunks,
 )
 from company_dlt_ingestion.plugins.sources.sqlserver_arrow import connection_string, odbc_value
+from company_dlt_ingestion.plugins.sources.oracle import (
+    OracleSourceAdapter,
+    generic_sql_type,
+    oracle_name,
+)
 
 
 def configuration():
@@ -115,3 +120,24 @@ def test_odbc_values_escape_closing_braces(monkeypatch):
 def test_distributed_defaults_to_native_arrow_backend():
     config = DistributedConfig(configuration())
     assert config.execution.get("extract_backend", "mssql_arrow") == "mssql_arrow"
+
+
+def test_oracle_adapter_selects_native_arrow_backend():
+    source = {
+        "type": "oracle", "host": "oracle", "service_name": "FREEPDB1",
+        "schema": "benchmark", "table": "wide",
+    }
+    adapter = OracleSourceAdapter(source)
+    assert adapter.default_backend == "oracle_arrow"
+    assert oracle_name("benchmark") == "BENCHMARK"
+    assert generic_sql_type("NUMBER", 18, 0) == "bigint"
+    assert generic_sql_type("NUMBER", 14, 2) == "decimal"
+    assert generic_sql_type("TIMESTAMP", None, 6) == "datetime2"
+
+
+def test_oracle_adapter_requires_service_name_or_database():
+    with pytest.raises(ValueError, match="service_name"):
+        OracleSourceAdapter({
+            "type": "oracle", "host": "oracle",
+            "schema": "benchmark", "table": "wide",
+        })
