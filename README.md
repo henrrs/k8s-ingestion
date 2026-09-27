@@ -70,6 +70,8 @@ com `make benchmark-report` a partir dos resumos persistidos no SeaweedFS.
 Referências do projeto:
 
 - [RFC do motor adaptativo e distribuído](docs/architecture/adaptive-ingestion-engine-rfc.md)
+- [Autenticação no Azure Key Vault](docs/architecture/azure-key-vault-authentication.md)
+- [E2E Airflow → Oracle → Delta](docs/benchmarks/adaptive-airflow-oracle-e2e.md)
 - [Decisão da arquitetura composável](docs/architecture/composable-ingestion-engine.md)
 - [Organização do repositório](docs/architecture/repository-layout.md)
 - [Contrato e parâmetros do operador e motor](docs/reference/configuration.md)

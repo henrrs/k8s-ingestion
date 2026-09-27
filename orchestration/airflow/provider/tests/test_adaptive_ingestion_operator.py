@@ -62,6 +62,8 @@ def test_operator_uses_official_kubernetes_job_operator_contract():
     assert task.do_xcom_push is False
     assert task.arguments == ["driver"]
     assert task.service_account_name == "ingestion-driver"
+    assert task.in_cluster is True
+    assert task.configuration["_orchestration"]["secret_env"] == []
 
 
 def test_operator_builds_one_stable_driver_job_and_runtime_contract():
@@ -158,7 +160,7 @@ def test_result_contract_points_to_durable_driver_result():
 
     result = task._result_contract()
 
-    assert result["job"].startswith("job-adaptive-ingest-wide-")
+    assert result["job"].startswith("job-ai-ingest-wide-")
     assert result["result_uri"] == (
         f"s3://ingestion-control/runs/{result['job']}/result.json"
     )

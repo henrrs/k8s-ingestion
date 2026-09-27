@@ -562,7 +562,7 @@ rules:
     verbs: ["get", "watch"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
@@ -570,6 +570,10 @@ rules:
     resources: ["events"]
     verbs: ["get", "list", "watch"]
 ```
+
+O `KubernetesJobOperator` marca o pod acompanhado durante cleanup e reattach;
+por isso a ServiceAccount do Airflow precisa de `patch` em `pods`. Essa
+permissão não se aplica a Secrets.
 
 O provider Airflow documenta as permissões de Job e pods em
 [Kubernetes RBAC permissions](https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/stable/kubernetes_rbac.html).
@@ -727,6 +731,9 @@ mas é adequada apenas como transição. Workload Identity remove o client secre
 usa tokens curtos, associa a identidade ao ServiceAccount e melhora auditoria e
 revogação.
 
+O contrato completo, a matriz de responsabilidades e o estado real da
+implementação estão em [Autenticação do motor no Azure Key Vault](azure-key-vault-authentication.md).
+
 ## 18. Observabilidade
 
 Métricas mínimas:
@@ -810,6 +817,7 @@ versão aparece em plano, manifests, métricas e commit Delta.
 | Publisher Delta | Implementado |
 | SeaweedFS/S3 local | Implementado |
 | `AdaptiveIngestionOperator` baseado em KJO | Implementado |
+| Airflow → Driver → workers → Delta local | Validado E2E |
 | ADLS ArtifactStore | Pendente |
 | `SecretResolver` Key Vault | Pendente |
 | Workload Identity end-to-end | Pendente |

@@ -25,10 +25,12 @@ def adaptive_job_name(dag_id: str, task_id: str, run_id: str, map_index: int) ->
     identity = json.dumps(
         [dag_id, task_id, run_id, map_index], separators=(",", ":")
     )
-    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:12]
     stem = re.sub(r"[^a-z0-9-]", "-", task_id.lower()).strip("-")
-    stem = stem[:31] or "ingestion"
-    return f"adaptive-{stem}-{digest}"
+    # Keep the parent short enough that the engine can derive an Indexed Job
+    # name and Kubernetes can still append a decimal completion index.
+    stem = stem[:12] or "ingestion"
+    return f"ai-{stem}-{digest}"
 
 
 def _secret_env(values: list[dict[str, str]]) -> list[k8s.V1EnvVar]:
@@ -93,7 +95,7 @@ class AdaptiveIngestionOperator(KubernetesJobOperator):
         env: dict[str, str] | None = None,
         timeout_seconds: int = 7200,
         kubernetes_conn_id: str = "kubernetes_default",
-        in_cluster: bool | None = None,
+        in_cluster: bool | None = True,
         cluster_context: str | None = None,
         config_file: str | None = None,
         poll_interval: float = 5,
@@ -112,9 +114,10 @@ class AdaptiveIngestionOperator(KubernetesJobOperator):
                 f"choose {list(JOB_PROFILES)}"
             )
 
-        resolved_secret_env = secret_env
-        if credential_mode == "workload_identity" and secret_env is None:
-            resolved_secret_env = []
+        # This operator is source-agnostic. Credential names are part of the
+        # DAG/environment contract and must never silently default to one
+        # connector (the legacy builder defaults to SQL Server for compatibility).
+        resolved_secret_env = [] if secret_env is None else secret_env
         configuration = build_ingestion_configuration(
             source=source,
             destination=destination,

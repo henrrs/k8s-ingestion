@@ -195,6 +195,16 @@ O contrato detalhado de estado, retry, RBAC e publicação está em
 execução e delega ao provider CNCF Kubernetes a criação, observação, logs e
 deferral do Job.
 
+Implementação e integração:
+
+| Peça | Arquivo |
+|---|---|
+| Operador Airflow | `orchestration/airflow/provider/src/company_airflow/operators/adaptive_ingestion.py` |
+| Configuração driver/workers | `orchestration/airflow/provider/src/company_airflow/ingestion.py` |
+| Manifesto do Indexed Job | `engines/dlt/src/company_dlt_ingestion/infrastructure/kubernetes.py` |
+| DAG Oracle executável | `orchestration/airflow/dags/company_ingestion_oracle_adaptive.py` |
+| Testes do operador | `orchestration/airflow/provider/tests/test_adaptive_ingestion_operator.py` |
+
 | Parâmetro | Obrigatório | Padrão | Descrição |
 |---|---:|---|---|
 | `source` | sim | — | Origem declarativa. |
@@ -209,7 +219,7 @@ deferral do Job.
 | `driver_service_account` | não | `ingestion-driver` | ServiceAccount do driver. |
 | `worker_service_account` | não | `ingestion-worker` | ServiceAccount dos workers. |
 | `credential_mode` | não | `kubernetes_secret` | `kubernetes_secret` no laboratório ou `workload_identity` no contrato produtivo. |
-| `secret_env` | não | secrets locais | Referências a Secrets; lista vazia em Workload Identity. |
+| `secret_env` | não | `[]` | Referências `{name, secret, key}`. A DAG declara nomes específicos do conector; lista vazia em Workload Identity. |
 | `kubernetes_conn_id` | não | `kubernetes_default` | Connection usada pelo KubernetesHook. |
 | `deferrable` | não | `True` | Libera o worker Airflow durante a execução. |
 | `timeout_seconds` | não | `7200` | Deadline do Driver e Worker Jobs. |
@@ -238,6 +248,10 @@ AdaptiveIngestionOperator(
     },
     compute_profile="medium",
     credential_mode="kubernetes_secret",
+    secret_env=[
+        {"name": "ORACLE_USER", "secret": "oracle-credentials", "key": "username"},
+        {"name": "ORACLE_PASSWORD", "secret": "oracle-credentials", "key": "password"},
+    ],
 )
 ```
 
@@ -250,6 +264,9 @@ No modo `workload_identity`, o operador aplica o label exigido pela Azure ao
 driver e propaga a política ao template dos workers. Esse modo depende da futura
 implementação do `SecretResolver` do Azure Key Vault e do store ADLS; a simples
 geração dos manifests não faz o runtime atual resolver secrets do Key Vault.
+
+O E2E local completo e seus números estão em
+[E2E do AdaptiveIngestionOperator com Oracle](../benchmarks/adaptive-airflow-oracle-e2e.md).
 
 ## Contrato do mini motor dltHub
 

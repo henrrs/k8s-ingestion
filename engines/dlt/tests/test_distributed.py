@@ -100,7 +100,8 @@ def test_persistent_worker_rejects_an_index_outside_parallelism():
 
 def test_child_job_name_is_stable_and_bounded():
     assert child_job_name("a" * 63) == child_job_name("a" * 63)
-    assert len(child_job_name("a" * 63)) <= 63
+    assert len(child_job_name("a" * 63)) <= 52
+    assert len(f"{child_job_name('a' * 63)}-2147483647") <= 63
 
 
 def test_invalid_run_id_is_rejected():

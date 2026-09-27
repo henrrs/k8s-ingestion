@@ -257,18 +257,20 @@ data:
     \n\ndef adaptive_job_name(dag_id: str, task_id: str, run_id: str, map_index: int)\
     \ -> str:\n    \"\"\"Return the stable Kubernetes identity of one logical Airflow\
     \ run.\"\"\"\n    identity = json.dumps(\n        [dag_id, task_id, run_id, map_index],\
-    \ separators=(\",\", \":\")\n    )\n    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]\n\
+    \ separators=(\",\", \":\")\n    )\n    digest = hashlib.sha256(identity.encode()).hexdigest()[:12]\n\
     \    stem = re.sub(r\"[^a-z0-9-]\", \"-\", task_id.lower()).strip(\"-\")\n   \
-    \ stem = stem[:31] or \"ingestion\"\n    return f\"adaptive-{stem}-{digest}\"\n\
-    \n\ndef _secret_env(values: list[dict[str, str]]) -> list[k8s.V1EnvVar]:\n   \
-    \ result = []\n    for item in values:\n        if not isinstance(item, dict)\
-    \ or set(item) != {\"name\", \"secret\", \"key\"}:\n            raise ValueError(\n\
-    \                \"Each secret_env entry must contain only name, secret and key\"\
-    \n            )\n        if not all(isinstance(item[key], str) and item[key]\n\
-    \                   for key in (\"name\", \"secret\", \"key\")):\n           \
-    \ raise ValueError(\n                \"secret_env name, secret and key must be\
-    \ non-empty strings\"\n            )\n        result.append(\n            k8s.V1EnvVar(\n\
-    \                name=item[\"name\"],\n                value_from=k8s.V1EnvVarSource(\n\
+    \ # Keep the parent short enough that the engine can derive an Indexed Job\n \
+    \   # name and Kubernetes can still append a decimal completion index.\n    stem\
+    \ = stem[:12] or \"ingestion\"\n    return f\"ai-{stem}-{digest}\"\n\n\ndef _secret_env(values:\
+    \ list[dict[str, str]]) -> list[k8s.V1EnvVar]:\n    result = []\n    for item\
+    \ in values:\n        if not isinstance(item, dict) or set(item) != {\"name\"\
+    , \"secret\", \"key\"}:\n            raise ValueError(\n                \"Each\
+    \ secret_env entry must contain only name, secret and key\"\n            )\n \
+    \       if not all(isinstance(item[key], str) and item[key]\n                \
+    \   for key in (\"name\", \"secret\", \"key\")):\n            raise ValueError(\n\
+    \                \"secret_env name, secret and key must be non-empty strings\"\
+    \n            )\n        result.append(\n            k8s.V1EnvVar(\n         \
+    \       name=item[\"name\"],\n                value_from=k8s.V1EnvVarSource(\n\
     \                    secret_key_ref=k8s.V1SecretKeySelector(\n               \
     \         name=item[\"secret\"], key=item[\"key\"]\n                    )\n  \
     \              ),\n            )\n        )\n    return result\n\n\nclass AdaptiveIngestionOperator(KubernetesJobOperator):\n\
@@ -290,7 +292,7 @@ data:
     ,\n        credential_mode: str = \"kubernetes_secret\",\n        secret_env:\
     \ list[dict[str, str]] | None = None,\n        env: dict[str, str] | None = None,\n\
     \        timeout_seconds: int = 7200,\n        kubernetes_conn_id: str = \"kubernetes_default\"\
-    ,\n        in_cluster: bool | None = None,\n        cluster_context: str | None\
+    ,\n        in_cluster: bool | None = True,\n        cluster_context: str | None\
     \ = None,\n        config_file: str | None = None,\n        poll_interval: float\
     \ = 5,\n        deferrable: bool = True,\n        enabled: bool | str = True,\n\
     \        **kwargs,\n    ) -> None:\n        if credential_mode not in {\"kubernetes_secret\"\
@@ -299,11 +301,13 @@ data:
     \            )\n        if compute_profile not in JOB_PROFILES and \"{{\" not\
     \ in compute_profile:\n            raise ValueError(\n                f\"Unknown\
     \ compute profile {compute_profile!r}; \"\n                f\"choose {list(JOB_PROFILES)}\"\
-    \n            )\n\n        resolved_secret_env = secret_env\n        if credential_mode\
-    \ == \"workload_identity\" and secret_env is None:\n            resolved_secret_env\
-    \ = []\n        configuration = build_ingestion_configuration(\n            source=source,\n\
-    \            destination=destination,\n            execution=execution,\n    \
-    \        storage=storage,\n            metrics=metrics,\n            validation=validation,\n\
+    \n            )\n\n        # This operator is source-agnostic. Credential names\
+    \ are part of the\n        # DAG/environment contract and must never silently\
+    \ default to one\n        # connector (the legacy builder defaults to SQL Server\
+    \ for compatibility).\n        resolved_secret_env = [] if secret_env is None\
+    \ else secret_env\n        configuration = build_ingestion_configuration(\n  \
+    \          source=source,\n            destination=destination,\n            execution=execution,\n\
+    \            storage=storage,\n            metrics=metrics,\n            validation=validation,\n\
     \            image=image,\n            compute_profile=compute_profile,\n    \
     \        namespace=namespace,\n            worker_service_account=worker_service_account,\n\
     \            secret_env=resolved_secret_env,\n            env=env,\n         \
@@ -734,8 +738,49 @@ data:
     endpoint_url\": \"http://seaweedfs:8333\"},\n        validation={\"require_source_row_match\"\
     : True},\n        metrics={\n            \"output_uri\": \"s3://metrics/runs-dlt-distributed\"\
     ,\n            \"pushgateway\": \"http://pushgateway:9091\",\n        },\n   \
-    \     timeout_seconds=3600,\n        retries=0,\n        execution_timeout=timedelta(minutes=65),\n\
+    \     secret_env=[\n            {\"name\": \"SQLSERVER_USER\", \"secret\": \"\
+    sqlserver-credentials\", \"key\": \"username\"},\n            {\"name\": \"SQLSERVER_PASSWORD\"\
+    , \"secret\": \"sqlserver-credentials\", \"key\": \"password\"},\n           \
+    \ {\"name\": \"AWS_ACCESS_KEY_ID\", \"secret\": \"seaweedfs-credentials\", \"\
+    key\": \"access_key\"},\n            {\"name\": \"AWS_SECRET_ACCESS_KEY\", \"\
+    secret\": \"seaweedfs-credentials\", \"key\": \"secret_key\"},\n        ],\n \
+    \       timeout_seconds=3600,\n        retries=0,\n        execution_timeout=timedelta(minutes=65),\n\
     \    )\n"
+  dags__company_ingestion_oracle_adaptive.py: "\"\"\"Oracle ingestion exercised through\
+    \ the official KubernetesJobOperator path.\"\"\"\n\nfrom datetime import datetime,\
+    \ timedelta, timezone\n\nfrom airflow.sdk import DAG, Param\nfrom company_airflow.operators\
+    \ import AdaptiveIngestionOperator\n\n\nwith DAG(\n    dag_id=\"company_ingestion_oracle_adaptive\"\
+    ,\n    description=\"Oracle \u2192 Delta through an isolated adaptive Driver Job\"\
+    ,\n    start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),\n    schedule=None,\n\
+    \    catchup=False,\n    max_active_runs=1,\n    render_template_as_native_obj=True,\n\
+    \    params={\n        \"compute_profile\": Param(\"small\", type=\"string\",\
+    \ enum=[\"small\", \"medium\"]),\n        \"max_workers\": Param(4, type=\"integer\"\
+    , minimum=1, maximum=8),\n    },\n    tags=[\"company-k8s\", \"oracle\", \"adaptive\"\
+    , \"delta\"],\n) as dag:\n    AdaptiveIngestionOperator(\n        task_id=\"ingest_oracle_wide\"\
+    ,\n        image=\"company-dlt-ingestion:0.6.0\",\n        compute_profile=\"\
+    {{ params.compute_profile }}\",\n        source={\n            \"type\": \"oracle\"\
+    ,\n            \"host\": \"oracle\",\n            \"port\": 1521,\n          \
+    \  \"service_name\": \"FREEPDB1\",\n            \"database\": \"FREEPDB1\",\n\
+    \            \"schema\": \"BENCHMARK\",\n            \"table\": \"WIDE\",\n  \
+    \          \"query_timeout_seconds\": 1800,\n        },\n        destination={\n\
+    \            \"format\": \"delta\",\n            \"uri\": \"s3://lakehouse/oracle-airflow/bronze/wide\"\
+    ,\n        },\n        execution={\n            \"max_workers\": \"{{ params.max_workers\
+    \ }}\",\n            \"max_source_connections\": \"{{ params.max_workers }}\"\
+    ,\n            \"max_chunks\": 64,\n            \"extract_backend\": \"oracle_arrow\"\
+    ,\n            \"target_chunk_bytes\": \"auto\",\n            \"fetch_size\":\
+    \ \"auto\",\n            \"publication_mode\": \"auto\",\n            \"chunk_retries\"\
+    : 2,\n            \"control_uri\": \"s3://ingestion-control/runs\",\n        },\n\
+    \        storage={\"type\": \"s3\", \"endpoint_url\": \"http://seaweedfs:8333\"\
+    },\n        validation={\"require_source_row_match\": True},\n        metrics={\n\
+    \            \"output_uri\": \"s3://metrics/runs-dlt-distributed\",\n        \
+    \    \"pushgateway\": \"http://pushgateway:9091\",\n        },\n        secret_env=[\n\
+    \            {\"name\": \"ORACLE_USER\", \"secret\": \"oracle-credentials\", \"\
+    key\": \"username\"},\n            {\"name\": \"ORACLE_PASSWORD\", \"secret\"\
+    : \"oracle-credentials\", \"key\": \"password\"},\n            {\"name\": \"AWS_ACCESS_KEY_ID\"\
+    , \"secret\": \"seaweedfs-credentials\", \"key\": \"access_key\"},\n         \
+    \   {\"name\": \"AWS_SECRET_ACCESS_KEY\", \"secret\": \"seaweedfs-credentials\"\
+    , \"key\": \"secret_key\"},\n        ],\n        timeout_seconds=3600,\n     \
+    \   retries=0,\n        execution_timeout=timedelta(minutes=65),\n    )\n"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -1195,6 +1240,8 @@ spec:
             path: dags/company_ingestion_dlt_benchmark.py
           - key: dags__company_ingestion_dlt_distributed.py
             path: dags/company_ingestion_dlt_distributed.py
+          - key: dags__company_ingestion_oracle_adaptive.py
+            path: dags/company_ingestion_oracle_adaptive.py
       serviceAccountName: airflow
       securityContext:
         fsGroup: 0
@@ -1291,6 +1338,14 @@ rules:
   - ''
   resources:
   - pods
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+- apiGroups:
+  - ''
+  resources:
   - pods/log
   verbs:
   - get

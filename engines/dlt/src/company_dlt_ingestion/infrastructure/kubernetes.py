@@ -7,7 +7,10 @@ import time
 
 def child_job_name(run_id):
     digest = hashlib.sha256(run_id.encode()).hexdigest()[:10]
-    stem = run_id[:43].rstrip("-")
+    # Indexed Jobs append ``-<completion-index>`` to pod hostnames. Reserve
+    # eleven characters for a 32-bit decimal index so the resulting DNS label
+    # remains within Kubernetes' 63-character limit.
+    stem = run_id[:33].rstrip("-")
     return f"workers-{stem}-{digest}"
 
 
