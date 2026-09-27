@@ -16,9 +16,12 @@ DEFAULT_SECRET_ENV = [
 def build_ingestion_configuration(
     *, source, destination, execution, storage, metrics, validation, image,
     compute_profile, namespace, worker_service_account, secret_env, env,
-    timeout_seconds,
+    timeout_seconds, workload_identity=False,
 ):
-    secrets = deepcopy(secret_env or DEFAULT_SECRET_ENV)
+    # ``None`` preserves the local-lab defaults.  An explicit empty list is a
+    # meaningful production configuration: credentials are resolved by the
+    # runtime through workload identity instead of Kubernetes Secrets.
+    secrets = deepcopy(DEFAULT_SECRET_ENV if secret_env is None else secret_env)
     worker_env = {"AWS_REGION": "us-east-1", "DLT_TELEMETRY": "false"}
     worker_env.update(env or {})
     return {
@@ -36,5 +39,6 @@ def build_ingestion_configuration(
             "worker_env": worker_env,
             "secret_env": secrets,
             "timeout_seconds": timeout_seconds,
+            "workload_identity": bool(workload_identity),
         },
     }

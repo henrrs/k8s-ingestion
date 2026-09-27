@@ -19,6 +19,8 @@ def worker_job_manifest(config, plan, parent_uid):
         "company-run": config.run_id,
         "company-role": "dlt-worker",
     }
+    if orchestration.get("workload_identity"):
+        labels["azure.workload.identity/use"] = "true"
     env = [
         {
             "name": "COMPANY_JOB_CONFIG",

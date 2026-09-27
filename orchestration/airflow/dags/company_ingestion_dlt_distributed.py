@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 from airflow.sdk import DAG, Param
-from company_airflow.operators.enterprise_ingestion import EnterpriseIngestionOperator
+from company_airflow.operators import AdaptiveIngestionOperator
 
 
 with DAG(
@@ -26,7 +26,7 @@ The driver discovers SQL Server metadata, creates an adaptive Indexed Job,
 validates immutable chunk manifests and publishes one Delta snapshot.
 """,
 ) as dag:
-    EnterpriseIngestionOperator(
+    AdaptiveIngestionOperator(
         task_id="ingest_table",
         image="company-dlt-ingestion:0.6.0",
         compute_profile="{{ params.compute_profile }}",

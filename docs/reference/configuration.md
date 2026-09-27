@@ -188,6 +188,69 @@ EnterpriseIngestionOperator(
 O contrato detalhado de estado, retry, RBAC e publicação está em
 [Ingestão dltHub distribuída com Driver Job](../architecture/distributed-driver-job.md).
 
+## AdaptiveIngestionOperator
+
+`AdaptiveIngestionOperator` é a evolução do operador distribuído sobre o
+`KubernetesJobOperator` oficial. Ele preserva o contrato de um Driver Job por
+execução e delega ao provider CNCF Kubernetes a criação, observação, logs e
+deferral do Job.
+
+| Parâmetro | Obrigatório | Padrão | Descrição |
+|---|---:|---|---|
+| `source` | sim | — | Origem declarativa. |
+| `destination` | sim | — | Destino declarativo. |
+| `execution` | não | `{}` | Limites do planner e URIs de controle. |
+| `storage` | não | `{}` | Configuração do store atual. |
+| `metrics` | não | `{}` | Destino das métricas. |
+| `validation` | não | `{}` | Política de validação. |
+| `image` | não | `company-dlt-ingestion:0.6.0` | Runtime comum de driver e workers. |
+| `compute_profile` | não | `small` | Recursos dos workers. |
+| `namespace` | não | `spark-lab` | Namespace dos Jobs. |
+| `driver_service_account` | não | `ingestion-driver` | ServiceAccount do driver. |
+| `worker_service_account` | não | `ingestion-worker` | ServiceAccount dos workers. |
+| `credential_mode` | não | `kubernetes_secret` | `kubernetes_secret` no laboratório ou `workload_identity` no contrato produtivo. |
+| `secret_env` | não | secrets locais | Referências a Secrets; lista vazia em Workload Identity. |
+| `kubernetes_conn_id` | não | `kubernetes_default` | Connection usada pelo KubernetesHook. |
+| `deferrable` | não | `True` | Libera o worker Airflow durante a execução. |
+| `timeout_seconds` | não | `7200` | Deadline do Driver e Worker Jobs. |
+
+```python
+from company_airflow.operators import AdaptiveIngestionOperator
+
+AdaptiveIngestionOperator(
+    task_id="ingest_orders",
+    source={
+        "type": "oracle",
+        "host": "oracle",
+        "service_name": "FREEPDB1",
+        "schema": "BENCHMARK",
+        "table": "WIDE",
+    },
+    destination={
+        "format": "delta",
+        "uri": "s3://lakehouse/adaptive/oracle-wide",
+    },
+    execution={
+        "max_workers": 4,
+        "max_source_connections": 4,
+        "target_chunk_bytes": "auto",
+        "fetch_size": "auto",
+    },
+    compute_profile="medium",
+    credential_mode="kubernetes_secret",
+)
+```
+
+O nome do Job exclui `try_number`. Um retry da mesma execução Airflow reanexa
+ao recurso existente quando o hash da configuração coincide. O retorno contém
+`job`, `namespace`, `profile` e `result_uri`; XCom sidecar não é usado, evitando
+a permissão `pods/exec`.
+
+No modo `workload_identity`, o operador aplica o label exigido pela Azure ao
+driver e propaga a política ao template dos workers. Esse modo depende da futura
+implementação do `SecretResolver` do Azure Key Vault e do store ADLS; a simples
+geração dos manifests não faz o runtime atual resolver secrets do Key Vault.
+
 ## Contrato do mini motor dltHub
 
 O contêiner em `engines/dlt` aceita SQL Server e Oracle como origens e Delta em storage

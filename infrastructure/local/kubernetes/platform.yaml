@@ -10,14 +10,14 @@ metadata:
   namespace: spark-lab
 data:
   company_airflow____init__.py: "\"\"\"Company provider for Spark and generic Kubernetes\
-    \ batch workloads.\"\"\"\n__version__ = \"0.3.0\"\n\ndef get_provider_info():\n\
+    \ batch workloads.\"\"\"\n__version__ = \"0.4.0\"\n\ndef get_provider_info():\n\
     \    return {\n        \"package-name\": \"company-airflow-provider\",\n     \
     \   \"name\": \"Company Kubernetes Workloads\",\n        \"description\": \"Run\
     \ versioned Spark applications and container workloads on Kubernetes.\",\n   \
     \     \"versions\": [__version__],\n        \"operators\": [{\"integration-name\"\
     : \"Company Kubernetes\", \"python-modules\": [\n            \"company_airflow.operators.spark\"\
     , \"company_airflow.operators.enterprise_k8s\",\n            \"company_airflow.operators.enterprise_ingestion\"\
-    ]}],\n    }\n"
+    ,\n            \"company_airflow.operators.adaptive_ingestion\"]}],\n    }\n"
   company_airflow__application.py: "\"\"\"Build native Apache SparkApplication objects\
     \ from an execution request.\"\"\"\nfrom copy import deepcopy\nimport hashlib\n\
     import json\nimport re\n\nPROFILES = {\n    \"small\": {\"driver_cores\": 1, \"\
@@ -169,18 +169,22 @@ data:
     : \"seaweedfs-credentials\", \"key\": \"secret_key\"},\n]\n\n\ndef build_ingestion_configuration(\n\
     \    *, source, destination, execution, storage, metrics, validation, image,\n\
     \    compute_profile, namespace, worker_service_account, secret_env, env,\n  \
-    \  timeout_seconds,\n):\n    secrets = deepcopy(secret_env or DEFAULT_SECRET_ENV)\n\
-    \    worker_env = {\"AWS_REGION\": \"us-east-1\", \"DLT_TELEMETRY\": \"false\"\
-    }\n    worker_env.update(env or {})\n    return {\n        \"source\": deepcopy(source),\n\
-    \        \"destination\": deepcopy(destination),\n        \"execution\": deepcopy(execution\
-    \ or {}),\n        \"storage\": deepcopy(storage or {}),\n        \"metrics\"\
-    : deepcopy(metrics or {}),\n        \"validation\": deepcopy(validation or {}),\n\
-    \        \"_orchestration\": {\n            \"image\": image,\n            \"\
-    namespace\": namespace,\n            \"worker_service_account\": worker_service_account,\n\
-    \            \"worker_resources\": deepcopy(JOB_PROFILES.get(compute_profile,\
-    \ {})),\n            \"worker_env\": worker_env,\n            \"secret_env\":\
-    \ secrets,\n            \"timeout_seconds\": timeout_seconds,\n        },\n  \
-    \  }\n"
+    \  timeout_seconds, workload_identity=False,\n):\n    # ``None`` preserves the\
+    \ local-lab defaults.  An explicit empty list is a\n    # meaningful production\
+    \ configuration: credentials are resolved by the\n    # runtime through workload\
+    \ identity instead of Kubernetes Secrets.\n    secrets = deepcopy(DEFAULT_SECRET_ENV\
+    \ if secret_env is None else secret_env)\n    worker_env = {\"AWS_REGION\": \"\
+    us-east-1\", \"DLT_TELEMETRY\": \"false\"}\n    worker_env.update(env or {})\n\
+    \    return {\n        \"source\": deepcopy(source),\n        \"destination\"\
+    : deepcopy(destination),\n        \"execution\": deepcopy(execution or {}),\n\
+    \        \"storage\": deepcopy(storage or {}),\n        \"metrics\": deepcopy(metrics\
+    \ or {}),\n        \"validation\": deepcopy(validation or {}),\n        \"_orchestration\"\
+    : {\n            \"image\": image,\n            \"namespace\": namespace,\n  \
+    \          \"worker_service_account\": worker_service_account,\n            \"\
+    worker_resources\": deepcopy(JOB_PROFILES.get(compute_profile, {})),\n       \
+    \     \"worker_env\": worker_env,\n            \"secret_env\": secrets,\n    \
+    \        \"timeout_seconds\": timeout_seconds,\n            \"workload_identity\"\
+    : bool(workload_identity),\n        },\n    }\n"
   company_airflow__job.py: "\"\"\"Build generic Kubernetes Jobs for containerized\
     \ enterprise workloads.\"\"\"\nfrom copy import deepcopy\nimport hashlib\nimport\
     \ json\nimport re\nfrom collections.abc import Mapping\n\nJOB_PROFILES = {\n \
@@ -235,7 +239,157 @@ data:
     \                message = condition.get(\"message\") or condition.get(\"reason\"\
     ) or message\n        return {\"status\": \"error\", \"state\": \"Failed\", \"\
     message\": message}\n    return None\n"
-  company_airflow__operators____init__.py: ''
+  company_airflow__operators____init__.py: 'from company_airflow.operators.adaptive_ingestion
+    import AdaptiveIngestionOperator
+
+
+    __all__ = ["AdaptiveIngestionOperator"]
+
+    '
+  company_airflow__operators__adaptive_ingestion.py: "\"\"\"Airflow facade for one\
+    \ driver-coordinated adaptive ingestion run.\"\"\"\n\nfrom __future__ import annotations\n\
+    \nfrom copy import deepcopy\nimport hashlib\nimport json\nimport re\nfrom typing\
+    \ import Any\n\nfrom airflow.providers.cncf.kubernetes.operators.job import (\n\
+    \    JOB_NAME_PREFIX,\n    KubernetesJobOperator,\n)\nfrom airflow.sdk.exceptions\
+    \ import AirflowSkipException\nfrom kubernetes.client import models as k8s\nfrom\
+    \ kubernetes.client.rest import ApiException\n\nfrom company_airflow.ingestion\
+    \ import build_ingestion_configuration\nfrom company_airflow.job import JOB_PROFILES\n\
+    \n\ndef adaptive_job_name(dag_id: str, task_id: str, run_id: str, map_index: int)\
+    \ -> str:\n    \"\"\"Return the stable Kubernetes identity of one logical Airflow\
+    \ run.\"\"\"\n    identity = json.dumps(\n        [dag_id, task_id, run_id, map_index],\
+    \ separators=(\",\", \":\")\n    )\n    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]\n\
+    \    stem = re.sub(r\"[^a-z0-9-]\", \"-\", task_id.lower()).strip(\"-\")\n   \
+    \ stem = stem[:31] or \"ingestion\"\n    return f\"adaptive-{stem}-{digest}\"\n\
+    \n\ndef _secret_env(values: list[dict[str, str]]) -> list[k8s.V1EnvVar]:\n   \
+    \ result = []\n    for item in values:\n        if not isinstance(item, dict)\
+    \ or set(item) != {\"name\", \"secret\", \"key\"}:\n            raise ValueError(\n\
+    \                \"Each secret_env entry must contain only name, secret and key\"\
+    \n            )\n        if not all(isinstance(item[key], str) and item[key]\n\
+    \                   for key in (\"name\", \"secret\", \"key\")):\n           \
+    \ raise ValueError(\n                \"secret_env name, secret and key must be\
+    \ non-empty strings\"\n            )\n        result.append(\n            k8s.V1EnvVar(\n\
+    \                name=item[\"name\"],\n                value_from=k8s.V1EnvVarSource(\n\
+    \                    secret_key_ref=k8s.V1SecretKeySelector(\n               \
+    \         name=item[\"secret\"], key=item[\"key\"]\n                    )\n  \
+    \              ),\n            )\n        )\n    return result\n\n\nclass AdaptiveIngestionOperator(KubernetesJobOperator):\n\
+    \    \"\"\"Submit one reusable ingestion image as a durable Kubernetes Driver\
+    \ Job.\n\n    DAG authors describe the source, destination and execution policy.\
+    \  This\n    operator owns only the Kubernetes control-plane integration; source\n\
+    \    discovery, adaptive planning and worker creation remain inside the driver.\n\
+    \    \"\"\"\n\n    template_fields = tuple(\n        dict.fromkeys((*KubernetesJobOperator.template_fields,\n\
+    \                       \"configuration\", \"execution_profile\", \"enabled\"\
+    ))\n    )\n    template_fields_renderers = {\n        **KubernetesJobOperator.template_fields_renderers,\n\
+    \        \"configuration\": \"json\",\n    }\n    ui_color = \"#DDF4FF\"\n\n \
+    \   def __init__(\n        self,\n        *,\n        source: dict[str, Any],\n\
+    \        destination: dict[str, Any],\n        execution: dict[str, Any] | None\
+    \ = None,\n        storage: dict[str, Any] | None = None,\n        metrics: dict[str,\
+    \ Any] | None = None,\n        validation: dict[str, Any] | None = None,\n   \
+    \     image: str = \"company-dlt-ingestion:0.6.0\",\n        compute_profile:\
+    \ str = \"small\",\n        namespace: str = \"spark-lab\",\n        driver_service_account:\
+    \ str = \"ingestion-driver\",\n        worker_service_account: str = \"ingestion-worker\"\
+    ,\n        credential_mode: str = \"kubernetes_secret\",\n        secret_env:\
+    \ list[dict[str, str]] | None = None,\n        env: dict[str, str] | None = None,\n\
+    \        timeout_seconds: int = 7200,\n        kubernetes_conn_id: str = \"kubernetes_default\"\
+    ,\n        in_cluster: bool | None = None,\n        cluster_context: str | None\
+    \ = None,\n        config_file: str | None = None,\n        poll_interval: float\
+    \ = 5,\n        deferrable: bool = True,\n        enabled: bool | str = True,\n\
+    \        **kwargs,\n    ) -> None:\n        if credential_mode not in {\"kubernetes_secret\"\
+    , \"workload_identity\"}:\n            raise ValueError(\n                \"credential_mode\
+    \ must be 'kubernetes_secret' or \"\n                \"'workload_identity'\"\n\
+    \            )\n        if compute_profile not in JOB_PROFILES and \"{{\" not\
+    \ in compute_profile:\n            raise ValueError(\n                f\"Unknown\
+    \ compute profile {compute_profile!r}; \"\n                f\"choose {list(JOB_PROFILES)}\"\
+    \n            )\n\n        resolved_secret_env = secret_env\n        if credential_mode\
+    \ == \"workload_identity\" and secret_env is None:\n            resolved_secret_env\
+    \ = []\n        configuration = build_ingestion_configuration(\n            source=source,\n\
+    \            destination=destination,\n            execution=execution,\n    \
+    \        storage=storage,\n            metrics=metrics,\n            validation=validation,\n\
+    \            image=image,\n            compute_profile=compute_profile,\n    \
+    \        namespace=namespace,\n            worker_service_account=worker_service_account,\n\
+    \            secret_env=resolved_secret_env,\n            env=env,\n         \
+    \   timeout_seconds=timeout_seconds,\n            workload_identity=credential_mode\
+    \ == \"workload_identity\",\n        )\n        orchestration = configuration[\"\
+    _orchestration\"]\n        driver_env = [\n            k8s.V1EnvVar(name=\"COMPANY_JOB_CONFIG\"\
+    , value=\"{}\"),\n            *(\n                k8s.V1EnvVar(name=key, value=str(value))\n\
+    \                for key, value in orchestration[\"worker_env\"].items()\n   \
+    \         ),\n            *_secret_env(orchestration[\"secret_env\"]),\n     \
+    \   ]\n        labels = {\n            \"app.kubernetes.io/managed-by\": \"company-airflow\"\
+    ,\n            \"company-role\": \"ingestion-driver\",\n        }\n        if\
+    \ credential_mode == \"workload_identity\":\n            labels[\"azure.workload.identity/use\"\
+    ] = \"true\"\n\n        driver_resources = JOB_PROFILES[\"small\"]\n        self.configuration\
+    \ = configuration\n        self.execution_profile = compute_profile\n        self.enabled\
+    \ = enabled\n        self.credential_mode = credential_mode\n        self._logical_job_name:\
+    \ str | None = None\n        self._configuration_hash: str | None = None\n\n \
+    \       super().__init__(\n            name=\"adaptive-ingestion\",\n        \
+    \    random_name_suffix=False,\n            namespace=namespace,\n           \
+    \ image=image,\n            arguments=[\"driver\"],\n            env_vars=driver_env,\n\
+    \            labels=labels,\n            service_account_name=driver_service_account,\n\
+    \            kubernetes_conn_id=kubernetes_conn_id,\n            in_cluster=in_cluster,\n\
+    \            cluster_context=cluster_context,\n            config_file=config_file,\n\
+    \            container_resources=k8s.V1ResourceRequirements(\n               \
+    \ requests=driver_resources, limits=driver_resources\n            ),\n       \
+    \     container_security_context=k8s.V1SecurityContext(\n                allow_privilege_escalation=False,\n\
+    \                capabilities=k8s.V1Capabilities(drop=[\"ALL\"]),\n          \
+    \  ),\n            backoff_limit=1,\n            active_deadline_seconds=timeout_seconds,\n\
+    \            ttl_seconds_after_finished=86400,\n            parallelism=1,\n \
+    \           completions=1,\n            wait_until_job_complete=True,\n      \
+    \      deferrable=deferrable,\n            job_poll_interval=poll_interval,\n\
+    \            get_logs=True,\n            do_xcom_push=False,\n            log_events_on_failure=True,\n\
+    \            durable=True,\n            on_finish_action=\"keep_pod\",\n     \
+    \       **kwargs,\n        )\n\n    @staticmethod\n    def _context_identity(context)\
+    \ -> tuple[str, str, str, int]:\n        ti = context[\"ti\"]\n        map_index\
+    \ = getattr(ti, \"map_index\", -1)\n        return (\n            ti.dag_id,\n\
+    \            ti.task_id,\n            context[\"run_id\"],\n            -1 if\
+    \ map_index is None else int(map_index),\n        )\n\n    def _prepare_run(self,\
+    \ context) -> None:\n        dag_id, task_id, airflow_run_id, map_index = self._context_identity(context)\n\
+    \        base_name = adaptive_job_name(dag_id, task_id, airflow_run_id, map_index)\n\
+    \        # KubernetesJobOperator unconditionally adds ``job-`` after reconciling\n\
+    \        # the Job. The engine's run_id must equal that final object name because\n\
+    \        # the driver reads its parent Job UID to create the worker ownerReference.\n\
+    \        name = f\"{JOB_NAME_PREFIX}{base_name}\"\n        if self.execution_profile\
+    \ not in JOB_PROFILES:\n            raise ValueError(\n                f\"Unknown\
+    \ compute profile {self.execution_profile!r}; \"\n                f\"choose {list(JOB_PROFILES)}\"\
+    \n            )\n\n        config = deepcopy(self.configuration)\n        config[\"\
+    run_id\"] = name\n        config[\"profile\"] = self.execution_profile\n     \
+    \   config[\"_orchestration\"][\"worker_resources\"] = deepcopy(\n           \
+    \ JOB_PROFILES[self.execution_profile]\n        )\n        payload = json.dumps(config,\
+    \ separators=(\",\", \":\"), sort_keys=True)\n        digest = hashlib.sha256(payload.encode()).hexdigest()\n\
+    \        for item in self.env_vars:\n            if item.name == \"COMPANY_JOB_CONFIG\"\
+    :\n                item.value = payload\n                break\n        else:\
+    \  # defensive: constructor always creates this variable\n            raise RuntimeError(\"\
+    COMPANY_JOB_CONFIG environment variable is missing\")\n\n        self.name = base_name\n\
+    \        self.labels[\"company-run\"] = name\n        self.annotations[\"company.io/config-hash\"\
+    ] = digest\n        self._logical_job_name = name\n        self._configuration_hash\
+    \ = digest\n\n    def build_job_request_obj(self, context=None):\n        if context\
+    \ is None:\n            raise ValueError(\"AdaptiveIngestionOperator requires\
+    \ Airflow context\")\n        self._prepare_run(context)\n        return super().build_job_request_obj(context)\n\
+    \n    def create_job(self, job_request_obj):\n        \"\"\"Create the Driver\
+    \ Job or safely reattach an Airflow retry.\"\"\"\n        try:\n            return\
+    \ super().create_job(job_request_obj)\n        except ApiException as error:\n\
+    \            if error.status != 409:\n                raise\n            existing\
+    \ = self.job_client.read_namespaced_job(\n                name=job_request_obj.metadata.name,\n\
+    \                namespace=job_request_obj.metadata.namespace,\n            )\n\
+    \            annotations = existing.metadata.annotations or {}\n            if\
+    \ annotations.get(\"company.io/config-hash\") != self._configuration_hash:\n \
+    \               raise RuntimeError(\n                    f\"Kubernetes Job {job_request_obj.metadata.name}\
+    \ exists \"\n                    \"with another ingestion configuration\"\n  \
+    \              ) from error\n            self.log.info(\n                \"Reattaching\
+    \ to existing Kubernetes Job %s\",\n                job_request_obj.metadata.name,\n\
+    \            )\n            return existing\n\n    def execute(self, context):\n\
+    \        if str(self.enabled).lower() in {\"false\", \"0\", \"none\"}:\n     \
+    \       raise AirflowSkipException(\"Ingestion was not selected\")\n        result\
+    \ = super().execute(context)\n        if not self.deferrable:\n            return\
+    \ self._result_contract()\n        return result\n\n    def execute_complete(self,\
+    \ context, event, **kwargs):\n        super().execute_complete(context, event,\
+    \ **kwargs)\n        job = event.get(\"job\") or {}\n        metadata = job.get(\"\
+    metadata\") or {}\n        self._logical_job_name = metadata.get(\"name\") or\
+    \ self._logical_job_name\n        return self._result_contract()\n\n    def _result_contract(self)\
+    \ -> dict[str, Any]:\n        name = self._logical_job_name or self.name\n   \
+    \     control_root = self.configuration.get(\"execution\", {}).get(\n        \
+    \    \"control_uri\", \"s3://ingestion-control/runs\"\n        ).rstrip(\"/\"\
+    )\n        return {\n            \"job\": name,\n            \"namespace\": self.namespace,\n\
+    \            \"profile\": self.execution_profile,\n            \"result_uri\"\
+    : f\"{control_root}/{name}/result.json\",\n        }\n"
   company_airflow__operators__enterprise_ingestion.py: "\"\"\"One Airflow task for\
     \ a driver-coordinated distributed ingestion run.\"\"\"\n\nfrom copy import deepcopy\n\
     \nfrom company_airflow.job import JOB_PROFILES\nfrom company_airflow.ingestion\
@@ -551,8 +705,8 @@ data:
     \       previous = task\n"
   dags__company_ingestion_dlt_distributed.py: "\"\"\"Driver-coordinated distributed\
     \ dltHub ingestion on Kubernetes.\"\"\"\n\nfrom datetime import datetime, timedelta,\
-    \ timezone\n\nfrom airflow.sdk import DAG, Param\nfrom company_airflow.operators.enterprise_ingestion\
-    \ import EnterpriseIngestionOperator\n\n\nwith DAG(\n    dag_id=\"company_ingestion_dlt_distributed\"\
+    \ timezone\n\nfrom airflow.sdk import DAG, Param\nfrom company_airflow.operators\
+    \ import AdaptiveIngestionOperator\n\n\nwith DAG(\n    dag_id=\"company_ingestion_dlt_distributed\"\
     ,\n    description=\"SQL Server \u2192 Delta with one isolated driver and adaptive\
     \ dlt workers\",\n    start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),\n\
     \    schedule=None,\n    catchup=False,\n    max_active_runs=1,\n    render_template_as_native_obj=True,\n\
@@ -563,8 +717,8 @@ data:
     , \"distributed\", \"delta\"],\n    doc_md=\"\"\"A single Airflow task starts\
     \ an isolated Driver Job.\n\nThe driver discovers SQL Server metadata, creates\
     \ an adaptive Indexed Job,\nvalidates immutable chunk manifests and publishes\
-    \ one Delta snapshot.\n\"\"\",\n) as dag:\n    EnterpriseIngestionOperator(\n\
-    \        task_id=\"ingest_table\",\n        image=\"company-dlt-ingestion:0.6.0\"\
+    \ one Delta snapshot.\n\"\"\",\n) as dag:\n    AdaptiveIngestionOperator(\n  \
+    \      task_id=\"ingest_table\",\n        image=\"company-dlt-ingestion:0.6.0\"\
     ,\n        compute_profile=\"{{ params.compute_profile }}\",\n        source={\n\
     \            \"type\": \"sqlserver\",\n            \"host\": \"sqlserver\",\n\
     \            \"port\": 1433,\n            \"database\": \"Benchmark\",\n     \
@@ -1019,6 +1173,8 @@ spec:
             path: company_airflow/job.py
           - key: company_airflow__operators____init__.py
             path: company_airflow/operators/__init__.py
+          - key: company_airflow__operators__adaptive_ingestion.py
+            path: company_airflow/operators/adaptive_ingestion.py
           - key: company_airflow__operators__enterprise_ingestion.py
             path: company_airflow/operators/enterprise_ingestion.py
           - key: company_airflow__operators__enterprise_k8s.py

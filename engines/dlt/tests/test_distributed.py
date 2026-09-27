@@ -64,6 +64,20 @@ def test_worker_job_is_indexed_and_only_references_secrets():
     assert embedded["run_id"] == "enterprise-orders-123"
 
 
+def test_worker_job_enables_azure_workload_identity_when_requested():
+    value = configuration()
+    value["_orchestration"]["workload_identity"] = True
+
+    job = worker_job_manifest(
+        DistributedConfig(value),
+        {"chunk_count": 1, "parallelism": 1, "plan_hash": "abc"},
+        "parent-uid",
+    )
+
+    labels = job["spec"]["template"]["metadata"]["labels"]
+    assert labels["azure.workload.identity/use"] == "true"
+
+
 def test_persistent_workers_cover_each_chunk_exactly_once():
     plan = {
         "parallelism": 4,

@@ -69,6 +69,7 @@ com `make benchmark-report` a partir dos resumos persistidos no SeaweedFS.
 
 Referências do projeto:
 
+- [RFC do motor adaptativo e distribuído](docs/architecture/adaptive-ingestion-engine-rfc.md)
 - [Decisão da arquitetura composável](docs/architecture/composable-ingestion-engine.md)
 - [Organização do repositório](docs/architecture/repository-layout.md)
 - [Contrato e parâmetros do operador e motor](docs/reference/configuration.md)
