@@ -19,6 +19,7 @@ class SourceConfig:
     encrypt: bool = True
     trust_server_certificate: bool = False
     query_timeout_seconds: int = 600
+    read_mode: str = "jdbc"
 
     def __post_init__(self):
         if self.type != "sqlserver":
@@ -33,6 +34,8 @@ class SourceConfig:
             raise ValueError("source.port must be between 1 and 65535")
         if not isinstance(self.query_timeout_seconds, int) or self.query_timeout_seconds < 1:
             raise ValueError("source.query_timeout_seconds must be positive")
+        if self.read_mode not in {"jdbc", "mssql_arrow"}:
+            raise ValueError("source.read_mode must be jdbc or mssql_arrow")
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,17 @@ class MetricsConfig:
 
 
 @dataclass(frozen=True)
+class BenchmarkConfig:
+    """Optional diagnostics; materialization deliberately changes the data path."""
+
+    isolate_io_phases: bool = False
+
+    def __post_init__(self):
+        if not isinstance(self.isolate_io_phases, bool):
+            raise ValueError("benchmark.isolate_io_phases must be boolean")
+
+
+@dataclass(frozen=True)
 class ExecutionConfig:
     run_id: str
     profile: str
@@ -61,6 +75,7 @@ class ExecutionConfig:
     destination: DestinationConfig
     planner: PlannerConfig = field(default_factory=PlannerConfig)
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
+    benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
 
     def __post_init__(self):
         if not isinstance(self.run_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,199}", self.run_id):
@@ -74,11 +89,15 @@ class ExecutionConfig:
 
     @classmethod
     def from_dict(cls, data):
+        planner = dict(data.get("planner", {}))
+        if planner.get("fetch_size") == "auto":
+            planner["fetch_size"] = None
         return cls(
             run_id=data["run_id"],
             profile=data["profile"],
             source=SourceConfig(**data["source"]),
             destination=DestinationConfig(**data["destination"]),
-            planner=PlannerConfig(**data.get("planner", {})),
+            planner=PlannerConfig(**planner),
             metrics=MetricsConfig(**data.get("metrics", {})),
+            benchmark=BenchmarkConfig(**data.get("benchmark", {})),
         )

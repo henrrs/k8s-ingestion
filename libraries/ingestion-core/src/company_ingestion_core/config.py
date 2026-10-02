@@ -8,16 +8,19 @@ class PlannerConfig:
     max_connections: int = 8
     target_partition_bytes: int = 32 * 1024 * 1024
     task_slots: int = 2
-    fetch_size: int = 10000
+    fetch_size: int | None = None
 
     def __post_init__(self):
-        for name in (
-            "max_connections", "target_partition_bytes", "task_slots",
-            "fetch_size",
-        ):
+        for name in ("max_connections", "target_partition_bytes", "task_slots"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"planner.{name} must be a positive integer")
+        if self.fetch_size is not None and (
+            isinstance(self.fetch_size, bool)
+            or not isinstance(self.fetch_size, int)
+            or self.fetch_size < 1
+        ):
+            raise ValueError("planner.fetch_size must be 'auto' or a positive integer")
 
 
 @dataclass(frozen=True)

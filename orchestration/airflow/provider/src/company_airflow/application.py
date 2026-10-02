@@ -64,6 +64,12 @@ def build_application(*, name: str, namespace: str, runtime: str, spark_version:
         "spark.kubernetes.executor.request.cores": str(resources["executor_cores"]),
         "spark.kubernetes.executor.limit.cores": str(resources["executor_cores"]),
         "spark.dynamicAllocation.enabled": "false",
+        # Speculative retries can execute the same source predicate twice and
+        # distort both SQL Server load and accumulator metrics.
+        "spark.speculation": "false",
+        "spark.python.worker.reuse": "true",
+        "spark.sql.execution.arrow.pyspark.enabled": "true",
+        "spark.sql.execution.arrow.pyspark.validateSchema.enabled": "true",
         "spark.kubernetes.executor.deleteOnTermination": "true",
         "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
         "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
@@ -90,7 +96,13 @@ def build_application(*, name: str, namespace: str, runtime: str, spark_version:
     conf.update(spark_conf or {})
     conf = {key: str(value) for key, value in conf.items()}
     driver_template = {"spec": {"containers": [{"name": "spark-kubernetes-driver", "env": env}]}}
-    executor_env = [value for value in env if value["name"] in {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"}]
+    executor_env = [
+        value for value in env
+        if value["name"] in {
+            "SQLSERVER_USER", "SQLSERVER_PASSWORD",
+            "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION",
+        }
+    ]
     executor_template = {"spec": {"containers": [{"name": "spark-kubernetes-executor", "env": executor_env}]}}
     return {
         "apiVersion": "spark.apache.org/v1", "kind": "SparkApplication",

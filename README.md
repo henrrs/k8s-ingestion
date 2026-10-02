@@ -169,6 +169,10 @@ estado ou artefatos locais e não fazem parte da arquitetura do produto.
 | `company_ingestion_benchmark` | [arquivo](orchestration/airflow/dags/company_ingestion_benchmark.py) | SQL Server → Delta pelo motor Spark. |
 | `company_ingestion_dlt_benchmark` | [arquivo](orchestration/airflow/dags/company_ingestion_dlt_benchmark.py) | Benchmark legado single-pod pelo Job genérico. |
 
+O comparativo Spark JDBC × `mssql-python`/`mapInArrow` é executado diretamente
+no cluster, sem DAG adicional. Veja a
+[arquitetura, métricas e procedimento](docs/benchmarks/spark-jdbc-mssql-arrow.md).
+
 Para criar uma DAG produtiva, use uma das duas primeiras como base e consulte
 [todos os parâmetros do operador e do motor](docs/reference/configuration.md).
 

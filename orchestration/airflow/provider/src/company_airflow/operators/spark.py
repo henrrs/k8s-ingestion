@@ -23,7 +23,7 @@ class CompanySparkOperator(BaseOperator):
     ui_color = "#E6F2FA"
 
     def __init__(self, *, parameters, wheel_url, compute_profile="small",
-                 runtime="company-spark-runtime:0.1.0", spark_version="4.2.0",
+                 runtime="company-spark-runtime:0.2.0", spark_version="4.2.0",
                  namespace="spark-lab", entrypoint="company_ingestion.entrypoint:main",
                  wheel_sha256=None, spark_conf=None, timeout_seconds=3600,
                  poll_interval=10, in_cluster=True, kube_context=None,

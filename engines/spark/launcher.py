@@ -30,6 +30,9 @@ def main():
                     "--disable-pip-version-check", "--target", str(packages), str(wheel)], check=True)
     sys.path.insert(0, str(packages))
     os.environ["COMPANY_WHEEL_DIGEST"] = digest
+    # Arrow readers execute Python in Spark executors. The engine registers this
+    # immutable wheel with Spark so those workers import the same implementation.
+    os.environ["COMPANY_WHEEL_LOCAL_PATH"] = str(wheel)
     config_path = work / "config.json"
     config_path.write_text(json.dumps(json.loads(os.environ["COMPANY_EXECUTION_CONFIG"])))
     config_path.chmod(0o600)

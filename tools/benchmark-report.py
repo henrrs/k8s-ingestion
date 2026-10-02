@@ -24,46 +24,52 @@ for prefix in ["runs/", "runs-dlt/"]:
         if value.get("run_id") == "company-smoke" or value.get("run_id", "").startswith("verification-"):
             continue
         value.setdefault("engine", "spark")
+        value.setdefault(
+            "read_mode",
+            value.get("extract_backend", "jdbc" if value["engine"] == "spark" else "unknown"),
+        )
         runs.append(value)
 
 # Retries and repeated DAG runs are useful raw evidence. The comparison uses the
 # latest successful result for each table/profile pair so it remains deterministic.
 latest = {}
 for run in sorted(runs, key=lambda value: value["started_at"]):
-    latest[(run["engine"], run["profile"], run["table"])] = run
+    latest[(run["engine"], run["read_mode"], run["profile"], run["table"])] = run
 
 lines = [
     "# Benchmark local de ingestão\n",
     "Resultados produzidos pelas DAGs Airflow com Spark e dltHub, usando a mesma origem SQL Server e o mesmo storage Delta.\n",
-    "| Motor | Perfil | Tabela | Linhas | Origem estimada (MiB) | Delta (MiB) | Partições | Estratégia | Leitura + escrita (s) | Linhas/s |",
-    "|---|---|---:|---:|---:|---:|---:|---|---:|---:|",
+    "| Motor | Leitor | Perfil | Tabela | Linhas | Origem estimada (MiB) | Delta (MiB) | Partições | Estratégia | Leitura + escrita (s) | Linhas/s |",
+    "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|",
 ]
-for (engine, profile, table), run in sorted(latest.items()):
+for (engine, read_mode, profile, table), run in sorted(latest.items()):
     lines.append(
-        f"| {engine} | {profile} | {table} | {run['rows']:,} | "
+        f"| {engine} | {read_mode} | {profile} | {table} | {run['rows']:,} | "
         f"{run['source_estimated_bytes'] / 1048576:.2f} | {run['output_bytes'] / 1048576:.2f} | "
         f"{run['partitions']} | {run['plan']['strategy']} | "
         f"{run['durations_seconds']['read_write']:.2f} | {run['throughput_rows_per_second']:.1f} |"
     )
 
-comparisons = []
+spark_reader_comparisons = []
 for profile in ["small", "medium"]:
     for table in ["small", "medium", "wide"]:
-        spark = latest.get(("spark", profile, table))
-        dlt = latest.get(("dlt", profile, table))
-        if spark and dlt:
-            comparisons.append((profile, table, spark["throughput_rows_per_second"],
-                                dlt["throughput_rows_per_second"]))
+        jdbc = latest.get(("spark", "jdbc", profile, table))
+        arrow = latest.get(("spark", "mssql_arrow", profile, table))
+        if jdbc and arrow:
+            spark_reader_comparisons.append((
+                profile, table, jdbc["throughput_rows_per_second"],
+                arrow["throughput_rows_per_second"],
+            ))
 
-if comparisons:
+if spark_reader_comparisons:
     lines += [
-        "\n## Comparação direta de throughput\n",
-        "| Perfil | Tabela | Spark (linhas/s) | dltHub (linhas/s) | dltHub / Spark |",
+        "\n## Spark JDBC × mssql-python/Arrow\n",
+        "| Perfil | Tabela | JDBC (linhas/s) | Arrow (linhas/s) | Arrow / JDBC |",
         "|---|---|---:|---:|---:|",
     ]
-    for profile, table, spark_rate, dlt_rate in comparisons:
+    for profile, table, jdbc_rate, arrow_rate in spark_reader_comparisons:
         lines.append(
-            f"| {profile} | {table} | {spark_rate:.1f} | {dlt_rate:.1f} | {dlt_rate / spark_rate:.2f}× |"
+            f"| {profile} | {table} | {jdbc_rate:.1f} | {arrow_rate:.1f} | {arrow_rate / jdbc_rate:.2f}× |"
         )
 
 lines += [

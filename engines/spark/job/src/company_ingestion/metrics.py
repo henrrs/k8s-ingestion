@@ -16,7 +16,8 @@ def escaped(value):
     return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 def exposition(result):
-    labels = {"engine": "spark", "table": result["table"], "profile": result["profile"],
+    labels = {"engine": "spark", "read_mode": result.get("read_mode", "jdbc"),
+              "table": result["table"], "profile": result["profile"],
               "run_id": result["run_id"], "strategy": result["plan"]["strategy"]}
     def line(name, value, extra=None):
         pairs = ",".join(f'{k}="{escaped(v)}"' for k, v in {**labels, **(extra or {})}.items())
@@ -26,7 +27,19 @@ def exposition(result):
         text += line(metric, result[metric])
     for phase, seconds in result["durations_seconds"].items():
         text += line("duration_seconds", seconds, {"phase": phase})
+    reader = result.get("reader_metrics", {})
+    for name in ("tasks", "chunks", "batches", "rows", "arrow_bytes"):
+        if name in reader:
+            text += line("reader_" + name, reader[name])
+    for name in ("throughput_rows_per_second", "throughput_arrow_bytes_per_second"):
+        if name in reader:
+            text += line("reader_" + name, reader[name])
+    for phase, seconds in reader.get("durations_seconds", {}).items():
+        text += line("duration_seconds", seconds, {"phase": "reader_" + phase})
+    if result["plan"].get("fetch_size"):
+        text += line("fetch_size", result["plan"]["fetch_size"])
     text += line("plan_info", 1, {"column": result["plan"]["column"] or "none", "reason": result["plan"]["rationale"]})
+    text += line("reader_info", 1, {"mode": result.get("read_mode", "jdbc")})
     return text
 
 def push(result, endpoint):

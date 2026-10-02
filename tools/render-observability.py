@@ -52,7 +52,7 @@ def panel(title, expr, unit, x, y, width=8, table=False, description=""):
     panels.append({"id": len(panels)+1, "title": title, "description": description,
         "type": "table" if table else "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"},
         "gridPos": {"x": x, "y": y, "w": width, "h": 8},
-        "targets": [{"expr": expr, "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}", "refId": "A", "instant": table, "format": "table" if table else "time_series"}],
+        "targets": [{"expr": expr, "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}", "refId": "A", "instant": table, "format": "table" if table else "time_series"}],
         "fieldConfig": {"defaults": {"unit": unit, "decimals": 2}, "overrides": []},
         "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}}})
 selector = '{engine=~"$engine",table=~"$table",profile=~"$profile"}'
@@ -88,11 +88,28 @@ panel("Amplificação lógica de escrita", "company_ingestion_data_write_amplifi
 panel("Tempo interno dos chunks", 'sum by(phase) (company_ingestion_chunk_phase_duration_seconds{engine=~"$engine",table=~"$table",profile=~"$profile"})', "s", 0,64,24,
       description="Soma de CPU/tempo por operação dos chunks; use para distinguir JDBC, materialização Python e dlt/Parquet/upload.")
 panels[-1]["targets"][0]["legendFormat"] = "{{phase}}"
+spark_reader_selector = '{engine="spark",read_mode=~"$spark_read_mode",table=~"$table",profile=~"$profile"}'
+panel("Spark JDBC × Arrow — pipeline produtivo", "company_ingestion_throughput_rows_per_second"+spark_reader_selector,
+      "rps", 0,72,12,
+      description="Comparação end-to-end até o commit Delta. Use esta métrica com isolate_io_phases=false para decidir performance.")
+panel("Arrow — throughput observado na origem", "company_ingestion_reader_throughput_rows_per_second"+spark_reader_selector,
+      "rps", 12,72,12,
+      description="Linhas Arrow / span das tasks. Disponível no modo mssql_arrow; não inclui startup nem planejamento.")
+panel("Spark reader — tempos internos", 'company_ingestion_duration_seconds{engine="spark",read_mode=~"$spark_read_mode",table=~"$table",profile=~"$profile",phase=~"reader_.*"}',
+      "s", 0,80,24,
+      description="Somas por executor podem se sobrepor. source_pipeline_span é o relógio de parede; fetch mede espera do SQL/ODBC e consumer_wait mede Arrow/Python/JVM e backpressure do Delta.")
+panels[-1]["targets"][0]["legendFormat"] = "{{read_mode}} / {{phase}} / {{run_id}}"
 dashboard = {"uid": "company-spark", "title": "Company Ingestion — Spark × dltHub", "schemaVersion": 39, "version": 2,
     "refresh": "10s", "time": {"from": "now-6h", "to": "now"}, "panels": panels,
     "templating": {"list": [{"name": name, "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"},
         "query": f"label_values(company_ingestion_rows, {name})", "includeAll": True, "allValue": ".*", "multi": True,
-        "current": {"text": "All", "value": "$__all"}, "refresh": 1} for name in ["engine", "table", "profile"]]}}
+        "current": {"text": "All", "value": "$__all"}, "refresh": 1} for name in ["engine", "table", "profile"]] + [{
+            "name": "spark_read_mode", "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": 'label_values(company_ingestion_rows{engine="spark"}, read_mode)',
+            "includeAll": True, "allValue": ".*", "multi": True,
+            "current": {"text": "All", "value": "$__all"}, "refresh": 1,
+        }]}}
 out=root/"infrastructure/local/kubernetes/observability";out.mkdir(parents=True,exist_ok=True)
 (out/"dashboard.json").write_text(json.dumps(dashboard,indent=2)+"\n")
 obj("ConfigMap", "grafana-dashboard", data={"benchmark.json": json.dumps(dashboard)})
@@ -108,7 +125,7 @@ deploy("grafana", "grafana/grafana:13.2.2",3000,
 history_opts = " ".join(["-Dspark.history.fs.logDirectory=s3a://spark-events/", "-Dspark.hadoop.fs.s3a.endpoint=http://seaweedfs:8333",
     "-Dspark.hadoop.fs.s3a.path.style.access=true", "-Dspark.hadoop.fs.s3a.connection.ssl.enabled=false", "-Dspark.hadoop.fs.s3a.endpoint.region=us-east-1",
     "-Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider"])
-deploy("spark-history", "company-spark-runtime:0.1.0",18080,
+deploy("spark-history", "company-spark-runtime:0.2.0",18080,
     env=[{"name":"SPARK_HISTORY_OPTS","value":history_opts},{"name":"SPARK_DAEMON_MEMORY","value":"512m"},
          {"name":"AWS_ACCESS_KEY_ID","valueFrom":{"secretKeyRef":{"name":"seaweedfs-credentials","key":"access_key"}}},
          {"name":"AWS_SECRET_ACCESS_KEY","valueFrom":{"secretKeyRef":{"name":"seaweedfs-credentials","key":"secret_key"}}}],memory="256Mi")

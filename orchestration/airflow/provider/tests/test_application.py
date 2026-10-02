@@ -26,3 +26,10 @@ def test_native_apache_manifest_keeps_secrets_out_of_parameters():
     env=app["spec"]["driverSpec"]["podTemplateSpec"]["spec"]["containers"][0]["env"]
     credential=next(e for e in env if e["name"]=="SQLSERVER_PASSWORD")
     assert "valueFrom" in credential and "value" not in credential
+    executor_env=app["spec"]["executorSpec"]["podTemplateSpec"]["spec"]["containers"][0]["env"]
+    assert {item["name"] for item in executor_env} == {
+        "SQLSERVER_USER", "SQLSERVER_PASSWORD", "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY", "AWS_REGION",
+    }
+    assert app["spec"]["sparkConf"]["spark.speculation"] == "false"
+    assert app["spec"]["sparkConf"]["spark.python.worker.reuse"] == "true"

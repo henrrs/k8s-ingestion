@@ -76,6 +76,9 @@ class ReadPlan:
     rationale: str
     estimated_rows: int
     estimated_source_bytes: int
+    fetch_size: int = 0
+    fetch_size_mode: str = "auto"
+    target_fetch_batch_bytes: int = AUTO_FETCH_BATCH_BYTES
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -212,8 +215,14 @@ def predicates_for(column, boundaries, identifier_renderer=identifier):
 def plan_read(metadata, config, column=None, histogram=(), bounds=None, warnings=(),
               identifier_renderer=identifier):
     requested = max(1, min(config.max_connections, config.task_slots * 2, math.ceil(metadata.estimated_bytes / config.target_partition_bytes)))
+    fetch_size, fetch_size_mode = adaptive_fetch_size(
+        metadata, requested, config.fetch_size
+    )
     common = dict(estimated_rows=metadata.estimated_rows, estimated_source_bytes=metadata.estimated_bytes,
-                  requested_partitions=requested, warnings=list(warnings))
+                  requested_partitions=requested, fetch_size=fetch_size,
+                  fetch_size_mode=fetch_size_mode,
+                  target_fetch_batch_bytes=AUTO_FETCH_BATCH_BYTES,
+                  warnings=list(warnings))
     if requested == 1:
         return ReadPlan("single_scan", ["1=1"], None, rationale="Estimated table size fits one task or compute/connection budget is one.", **common)
     column = column or select_column(metadata.columns)

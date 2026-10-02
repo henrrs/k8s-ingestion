@@ -27,7 +27,7 @@
       "targets": [
         {
           "expr": "company_ingestion_throughput_rows_per_second{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -68,7 +68,7 @@
       "targets": [
         {
           "expr": "company_ingestion_throughput_output_bytes_per_second{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -109,7 +109,7 @@
       "targets": [
         {
           "expr": "company_ingestion_rows{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -191,7 +191,7 @@
       "targets": [
         {
           "expr": "company_ingestion_partitions{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -232,7 +232,7 @@
       "targets": [
         {
           "expr": "company_ingestion_source_estimated_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -273,7 +273,7 @@
       "targets": [
         {
           "expr": "company_ingestion_output_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -314,7 +314,7 @@
       "targets": [
         {
           "expr": "company_ingestion_plan_info{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": true,
           "format": "table"
@@ -437,7 +437,7 @@
       "targets": [
         {
           "expr": "max by(engine,table,profile,run_id) (company_ingestion_chunks_total{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"})",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -519,7 +519,7 @@
       "targets": [
         {
           "expr": "company_ingestion_retries_total{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -560,7 +560,7 @@
       "targets": [
         {
           "expr": "100 * company_ingestion_chunks_succeeded{job=\"company_ingestion_progress\",engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"} / company_ingestion_chunks_total{job=\"company_ingestion_progress\",engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -601,7 +601,7 @@
       "targets": [
         {
           "expr": "company_ingestion_target_chunk_bytes{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -642,7 +642,7 @@
       "targets": [
         {
           "expr": "company_ingestion_fetch_size{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -683,7 +683,7 @@
       "targets": [
         {
           "expr": "company_ingestion_data_write_amplification_ratio{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"}",
-          "legendFormat": "{{engine}} / {{table}} / {{profile}} / {{run_id}}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -725,6 +725,129 @@
         {
           "expr": "sum by(phase) (company_ingestion_chunk_phase_duration_seconds{engine=~\"$engine\",table=~\"$table\",profile=~\"$profile\"})",
           "legendFormat": "{{phase}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Spark JDBC \u00d7 Arrow \u2014 pipeline produtivo",
+      "description": "Compara\u00e7\u00e3o end-to-end at\u00e9 o commit Delta. Use esta m\u00e9trica com isolate_io_phases=false para decidir performance.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_throughput_rows_per_second{engine=\"spark\",read_mode=~\"$spark_read_mode\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rps",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Arrow \u2014 throughput observado na origem",
+      "description": "Linhas Arrow / span das tasks. Dispon\u00edvel no modo mssql_arrow; n\u00e3o inclui startup nem planejamento.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_reader_throughput_rows_per_second{engine=\"spark\",read_mode=~\"$spark_read_mode\",table=~\"$table\",profile=~\"$profile\"}",
+          "legendFormat": "{{engine}} / {{read_mode}} / {{table}} / {{profile}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rps",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Spark reader \u2014 tempos internos",
+      "description": "Somas por executor podem se sobrepor. source_pipeline_span \u00e9 o rel\u00f3gio de parede; fetch mede espera do SQL/ODBC e consumer_wait mede Arrow/Python/JVM e backpressure do Delta.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 80,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_duration_seconds{engine=\"spark\",read_mode=~\"$spark_read_mode\",table=~\"$table\",profile=~\"$profile\",phase=~\"reader_.*\"}",
+          "legendFormat": "{{read_mode}} / {{phase}} / {{run_id}}",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -792,6 +915,23 @@
           "uid": "prometheus"
         },
         "query": "label_values(company_ingestion_rows, profile)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "spark_read_mode",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(company_ingestion_rows{engine=\"spark\"}, read_mode)",
         "includeAll": true,
         "allValue": ".*",
         "multi": true,

@@ -27,6 +27,25 @@ def test_tiny_table_does_not_parallelize():
     result=plan_read(metadata(size=1000),PlannerConfig())
     assert result.predicates==["1=1"]
     assert result.strategy=="single_scan"
+    assert result.fetch_size == 100_000
+    assert result.fetch_size_mode == "auto"
+
+
+def test_spark_plan_adapts_fetch_size_to_estimated_row_width():
+    result = plan_read(
+        TableMetadata(1_000_000, 512 * 1024**2, (column(),)),
+        PlannerConfig(task_slots=2, max_connections=8),
+        bounds=(Decimal(1), Decimal(1_000_000)),
+    )
+    assert result.partitions == 4
+    assert 30_000 <= result.fetch_size <= 32_000
+    assert result.fetch_size_mode == "auto"
+
+
+def test_spark_manual_fetch_size_remains_an_override():
+    result = plan_read(metadata(), PlannerConfig(fetch_size=7_500))
+    assert result.fetch_size == 7_500
+    assert result.fetch_size_mode == "manual"
 
 def test_large_unindexed_table_avoids_repeated_hash_scans():
     result=plan_read(metadata([Column("id","bigint")]),PlannerConfig())

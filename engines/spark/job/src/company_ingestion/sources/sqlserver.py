@@ -1,5 +1,7 @@
-"""SQL Server metadata and JDBC reads, using the runtime's JVM JDBC driver."""
+"""SQL Server metadata plus JDBC and native Arrow Spark read paths."""
 
+from dataclasses import asdict
+from functools import partial
 import os
 
 from ..planner import Column, HistogramStep, TableMetadata, DATE_TYPES, identifier, parse_value, plan_read, select_column
@@ -27,7 +29,6 @@ class SqlServerSource:
             raise ValueError(f"Missing source credential environment variable: {error.args[0]}") from None
         self.properties = {"user": user, "password": password,
                            "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
-                           "fetchsize": str(planner.fetch_size),
                            "queryTimeout": str(config.query_timeout_seconds),
                            "responseBuffering": "adaptive"}
         java_properties = spark._jvm.java.util.Properties()
@@ -37,6 +38,9 @@ class SqlServerSource:
         driver = spark._jvm.com.microsoft.sqlserver.jdbc.SQLServerDriver()
         self.connection = driver.connect(self.url, java_properties)
         self.warnings = []
+        self._arrow_metrics = None
+        self._metadata = None
+        self._resolved_fetch_size = None
 
     def query(self, sql):
         statement = self.connection.createStatement()
@@ -56,7 +60,9 @@ class SqlServerSource:
             statement.close()
 
     def close(self):
-        self.connection.close()
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
 
     def metadata(self):
         found = self.query(f"SELECT OBJECT_ID({sql_string(self.qualified_table)}, 'U') AS object_id")
@@ -150,6 +156,7 @@ class SqlServerSource:
 
     def plan(self):
         metadata = self.metadata()
+        self._metadata = metadata
         preliminary = plan_read(metadata, self.planner_config)
         if preliminary.requested_partitions == 1:
             preliminary.warnings.extend(self.warnings)
@@ -163,5 +170,150 @@ class SqlServerSource:
         return metadata, plan_read(metadata, self.planner_config, column, histogram, bounds, self.warnings)
 
     def read(self, plan):
-        return self.spark.read.jdbc(url=self.url, table=self.qualified_table,
-                                    predicates=plan.predicates, properties=self.properties)
+        self._resolved_fetch_size = plan.fetch_size
+        if self.config.read_mode == "mssql_arrow":
+            # Metadata discovery is complete. Do not occupy an extra connection
+            # while the executor partitions consume the configured budget.
+            self.close()
+            return self._read_arrow(plan)
+        properties = {**self.properties, "fetchsize": str(plan.fetch_size)}
+        return self.spark.read.jdbc(
+            url=self.url,
+            table=self.qualified_table,
+            predicates=plan.predicates,
+            properties=properties,
+        )
+
+    def reader_metrics(self):
+        if self.config.read_mode != "mssql_arrow":
+            return {
+                "mode": "jdbc",
+                "instrumentation": "spark_jvm_scan",
+                "measurement_note": (
+                    "JDBC source and Delta sink are pipelined by Spark; read_write is "
+                    "their production end-to-end wall time."
+                ),
+                "fetch_size": self._resolved_fetch_size,
+            }
+        from .mssql_arrow import summarize_task_metrics
+
+        return {
+            "mode": "mssql_arrow",
+            "fetch_size": self._arrow_metrics["fetch_size"],
+            "target_batch_bytes": self._arrow_metrics["target_batch_bytes"],
+            **summarize_task_metrics(self._arrow_metrics["accumulator"].value),
+        }
+
+    def _read_arrow(self, plan):
+        from .mssql_arrow import (
+            TaskMetricsAccumulatorParam,
+            extract_batches,
+        )
+
+        schema, projection = self._arrow_schema_and_projection()
+        task_metrics = self.spark.sparkContext.accumulator(
+            {}, TaskMetricsAccumulatorParam()
+        )
+        self._arrow_metrics = {
+            "accumulator": task_metrics,
+            "fetch_size": plan.fetch_size,
+            "target_batch_bytes": plan.target_fetch_batch_bytes,
+        }
+        source = asdict(self.config)
+        source["qualified_table"] = self.qualified_table
+        reader = partial(
+            extract_batches,
+            source=source,
+            predicates=tuple(plan.predicates),
+            projection=projection,
+            batch_size=plan.fetch_size,
+            metrics_accumulator=task_metrics,
+        )
+        # Range creates exactly one lightweight control row per desired source
+        # partition without a shuffle. The business data never enters this frame.
+        controls = self.spark.range(
+            0, plan.partitions, 1, numPartitions=plan.partitions
+        ).selectExpr("CAST(id AS INT) AS chunk_id")
+        return controls.mapInArrow(reader, schema)
+
+    def _arrow_schema_and_projection(self):
+        """Return a Spark schema and deterministic SQL projection for Arrow."""
+        from pyspark.sql.types import (
+            BinaryType,
+            BooleanType,
+            DateType,
+            DecimalType,
+            DoubleType,
+            FloatType,
+            IntegerType,
+            LongType,
+            ShortType,
+            StringType,
+            StructField,
+            StructType,
+            TimestampNTZType,
+            TimestampType,
+        )
+
+        if self._metadata is None:
+            raise RuntimeError("Source metadata must be planned before building the Arrow scan")
+        metadata = self._metadata
+        fields = []
+        expressions = []
+        for column in metadata.columns:
+            name = identifier(column.name)
+            sql_type = column.sql_type.lower()
+            expression = name
+            if sql_type == "bigint":
+                spark_type = LongType()
+            elif sql_type == "int":
+                spark_type = IntegerType()
+            elif sql_type == "smallint":
+                spark_type = ShortType()
+            elif sql_type == "tinyint":
+                # SQL Server tinyint is unsigned while Spark ByteType is signed.
+                spark_type = ShortType()
+                expression = f"CAST({name} AS smallint)"
+            elif sql_type in {"decimal", "numeric"}:
+                spark_type = DecimalType(column.precision, column.scale)
+            elif sql_type == "money":
+                spark_type = DecimalType(19, 4)
+            elif sql_type == "smallmoney":
+                spark_type = DecimalType(10, 4)
+            elif sql_type == "float":
+                spark_type = DoubleType()
+            elif sql_type == "real":
+                spark_type = FloatType()
+            elif sql_type == "bit":
+                spark_type = BooleanType()
+            elif sql_type in {"char", "varchar", "nchar", "nvarchar", "xml", "uniqueidentifier"}:
+                spark_type = StringType()
+            elif sql_type in {"text", "ntext"}:
+                spark_type = StringType()
+                expression = f"CAST({name} AS nvarchar(max))"
+            elif sql_type in {"binary", "varbinary", "timestamp", "rowversion"}:
+                spark_type = BinaryType()
+            elif sql_type == "image":
+                spark_type = BinaryType()
+                expression = f"CAST({name} AS varbinary(max))"
+            elif sql_type == "date":
+                spark_type = DateType()
+            elif sql_type in {"datetime", "datetime2", "smalldatetime"}:
+                # SQL Server values have no zone. mssql-python exposes a
+                # timezone-free Arrow timestamp, which Spark 4 maps to NTZ.
+                spark_type = TimestampNTZType()
+            elif sql_type == "datetimeoffset":
+                spark_type = TimestampType()
+            elif sql_type == "time":
+                # Spark has no portable SQL time-of-day type across supported
+                # runtimes, so preserve its exact textual representation.
+                spark_type = StringType()
+                expression = f"CONVERT(nvarchar(32), {name})"
+            else:
+                raise ValueError(
+                    f"mssql_arrow does not support SQL Server type {sql_type!r} "
+                    f"for column {column.name!r}; use jdbc or an explicit source view"
+                )
+            fields.append(StructField(column.name, spark_type, column.nullable))
+            expressions.append(f"{expression} AS {name}")
+        return StructType(fields), ", ".join(expressions)

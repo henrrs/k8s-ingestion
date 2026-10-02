@@ -13,7 +13,7 @@ ingestão. A DAG informa intenção e limites; cada motor decide como executar.
 | `wheel_url` | sim | — | URL HTTP(S) do wheel executado pelo runtime. |
 | `wheel_sha256` | recomendado | `None` | SHA-256 esperado. Quando informado, divergência impede a execução. |
 | `compute_profile` | não | `small` | Perfil `small` ou `medium`. É um campo templated. |
-| `runtime` | não | `company-spark-runtime:0.1.0` | Imagem genérica de Spark usada por driver e executores. |
+| `runtime` | não | `company-spark-runtime:0.2.0` | Imagem genérica de Spark usada por driver e executores. |
 | `spark_version` | não | `4.2.0` | Versão declarada na `SparkApplication`. |
 | `namespace` | não | `spark-lab` | Namespace onde a aplicação é criada. |
 | `entrypoint` | não | `company_ingestion.entrypoint:main` | Função Python carregada do wheel. |
@@ -309,11 +309,12 @@ seções seguintes.
 | `database` | sim | — | Banco de dados. |
 | `schema` | sim | — | Schema da tabela. |
 | `table` | sim | — | Tabela lida integralmente. |
+| `read_mode` | não | `jdbc` | Para SQL Server: `jdbc` ou `mssql_arrow`. O segundo usa `mssql-python` nos executores e entrega RecordBatches por `mapInArrow`. |
 | `user_env` | não | `SQLSERVER_USER` | Variável de ambiente que contém o usuário. |
 | `password_env` | não | `SQLSERVER_PASSWORD` | Variável que contém a senha. |
 | `encrypt` | não | `true` | Ativa criptografia JDBC. |
 | `trust_server_certificate` | não | `false` | Aceita certificado não validado; útil somente no laboratório. |
-| `query_timeout_seconds` | não | `600` | Timeout das consultas de metadados. |
+| `query_timeout_seconds` | não | `600` | Timeout das consultas de metadados e das queries Arrow. |
 
 O usuário precisa de `SELECT`, `VIEW DEFINITION` e permissão para consultar
 as DMVs de tamanho utilizadas pelo planner.
@@ -355,7 +356,7 @@ uma tentativa sobrescreva silenciosamente outra execução.
 |---|---:|---:|---|
 | `max_connections` | não | `8` | Limite de conexões JDBC concorrentes por execução. |
 | `target_partition_bytes` | não | `33554432` | Tamanho estimado desejado por partição (32 MiB). |
-| `fetch_size` | não | `10000` | Linhas solicitadas por lote JDBC. |
+| `fetch_size` | não | `auto` | Linhas por lote, calculadas pela largura média para aproximadamente 16 MiB; também aceita inteiro positivo. Vale para JDBC e Arrow. |
 | `task_slots` | injetado | perfil | Paralelismo físico disponível; a DAG não deve defini-lo. |
 
 O número solicitado é limitado por conexões, capacidade do perfil e tamanho:
@@ -382,13 +383,22 @@ O resultado contém contagens, bytes estimados da origem, bytes Delta reais,
 número de arquivos e partições, estratégia, checksum de leitura, versão Delta,
 durações por fase e throughput. O mesmo objeto é retornado via XCom.
 
+### Diagnóstico de leitura e escrita Spark
+
+`benchmark.isolate_io_phases` é `false` por padrão. Quando `true`, o motor
+materializa e persiste a origem antes de gravar Delta, publicando
+`source_materialization` e `delta_write_from_cache`. Esse modo altera o pipeline
+e serve somente para localizar gargalos. Consulte o
+[benchmark JDBC × Arrow](../benchmarks/spark-jdbc-mssql-arrow.md) para a semântica
+das métricas internas do leitor.
+
 ## Exemplo de DAG
 
 ```python
 CompanySparkOperator(
     task_id="ingest_orders",
     compute_profile="medium",
-    wheel_url="http://artifacts:8080/company_ingestion-0.6.0-py3-none-any.whl",
+    wheel_url="http://artifacts:8080/company_ingestion-0.7.0-py3-none-any.whl",
     wheel_sha256=os.environ["COMPANY_WHEEL_SHA256"],
     parameters={
         "source": {
