@@ -18,6 +18,7 @@ não está implementada ponta a ponta.
 | Quero... | Onde começar |
 |---|---|
 | Entender a arquitetura inteira | [RFC do motor adaptativo](docs/architecture/adaptive-ingestion-engine-rfc.md) |
+| Entender o caminho SQL Server → PyArrow → Delta | [Arquitetura, benchmark e integração Databricks](docs/architecture/mssql-pyarrow-delta-rs.md) |
 | Encontrar um módulo no repositório | [Mapa de pastas](#mapa-do-repositório) |
 | Criar uma DAG de ingestão | [DAG Oracle de exemplo](orchestration/airflow/dags/company_ingestion_oracle_adaptive.py) e [contrato de configuração](docs/reference/configuration.md) |
 | Entender o operador Airflow | [AdaptiveIngestionOperator](orchestration/airflow/provider/src/company_airflow/operators/adaptive_ingestion.py) |
@@ -314,6 +315,7 @@ por fase.
 - [Arquitetura composável e plugins](docs/architecture/composable-ingestion-engine.md)
 - [Driver Job e Indexed Job](docs/architecture/distributed-driver-job.md)
 - [Oracle colunar e distribuído](docs/architecture/oracle-columnar-ingestion.md)
+- [SQL Server → PyArrow → Delta por manifesto](docs/architecture/mssql-pyarrow-delta-rs.md)
 - [Azure Key Vault e identidades](docs/architecture/azure-key-vault-authentication.md)
 - [Organização detalhada do repositório](docs/architecture/repository-layout.md)
 
@@ -326,6 +328,7 @@ por fase.
 
 - [Resultados consolidados](docs/benchmarks/results.md)
 - [Spark × motor Python](docs/benchmarks/spark-dlt-comparison.md)
+- [Spark Delta × PyArrow + delta-rs](docs/architecture/mssql-pyarrow-delta-rs.md)
 - [E2E AdaptiveIngestionOperator com Oracle](docs/benchmarks/adaptive-airflow-oracle-e2e.md)
 
 ## Estado atual

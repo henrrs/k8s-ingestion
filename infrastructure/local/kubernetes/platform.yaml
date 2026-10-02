@@ -48,7 +48,8 @@ data:
     ),\n        secret_env(\"AWS_ACCESS_KEY_ID\", \"seaweedfs-credentials\", \"access_key\"\
     ),\n        secret_env(\"AWS_SECRET_ACCESS_KEY\", \"seaweedfs-credentials\", \"\
     secret_key\"),\n        {\"name\": \"AWS_REGION\", \"value\": \"us-east-1\"},\n\
-    \    ]\n    if wheel_sha256:\n        env.append({\"name\": \"COMPANY_WHEEL_SHA256\"\
+    \        {\"name\": \"AWS_ENDPOINT_URL\", \"value\": \"http://seaweedfs:8333\"\
+    },\n    ]\n    if wheel_sha256:\n        env.append({\"name\": \"COMPANY_WHEEL_SHA256\"\
     , \"value\": wheel_sha256})\n    conf = {\n        \"spark.app.name\": name,\n\
     \        \"spark.kubernetes.namespace\": namespace,\n        \"spark.kubernetes.container.image\"\
     : runtime,\n        \"spark.kubernetes.container.image.pullPolicy\": \"IfNotPresent\"\
@@ -90,24 +91,25 @@ data:
     name\": \"spark-kubernetes-driver\", \"env\": env}]}}\n    executor_env = [\n\
     \        value for value in env\n        if value[\"name\"] in {\n           \
     \ \"SQLSERVER_USER\", \"SQLSERVER_PASSWORD\",\n            \"AWS_ACCESS_KEY_ID\"\
-    , \"AWS_SECRET_ACCESS_KEY\", \"AWS_REGION\",\n        }\n    ]\n    executor_template\
-    \ = {\"spec\": {\"containers\": [{\"name\": \"spark-kubernetes-executor\", \"\
-    env\": executor_env}]}}\n    return {\n        \"apiVersion\": \"spark.apache.org/v1\"\
-    , \"kind\": \"SparkApplication\",\n        \"metadata\": {\"name\": name, \"namespace\"\
-    : namespace,\n                     \"labels\": {\"app.kubernetes.io/managed-by\"\
-    : \"company-airflow\", \"company-profile\": compute_profile}},\n        \"spec\"\
-    : {\n            \"pyFiles\": \"local:///opt/company/launcher.py\",\n        \
-    \    \"runtimeVersions\": {\"sparkVersion\": spark_version},\n            \"sparkConf\"\
-    : conf,\n            \"driverSpec\": {\"podTemplateSpec\": driver_template},\n\
-    \            \"executorSpec\": {\"podTemplateSpec\": executor_template},\n   \
-    \         \"applicationTolerations\": {\n                \"restartConfig\": {\"\
-    restartPolicy\": \"Never\"},\n                \"resourceRetainPolicy\": \"Always\"\
-    ,\n                \"resourceRetainDurationMillis\": 900000,\n               \
-    \ \"ttlAfterStopMillis\": 86400000,\n                \"instanceConfig\": {\"minExecutors\"\
-    : 1, \"initExecutors\": resources[\"executors\"], \"maxExecutors\": resources[\"\
-    executors\"]},\n                \"applicationTimeoutConfig\": {\"driverStartTimeoutMillis\"\
-    : 600000,\n                                             \"executorStartTimeoutMillis\"\
-    : 600000},\n            },\n        },\n    }\n"
+    , \"AWS_SECRET_ACCESS_KEY\", \"AWS_REGION\",\n            \"AWS_ENDPOINT_URL\"\
+    ,\n        }\n    ]\n    executor_template = {\"spec\": {\"containers\": [{\"\
+    name\": \"spark-kubernetes-executor\", \"env\": executor_env}]}}\n    return {\n\
+    \        \"apiVersion\": \"spark.apache.org/v1\", \"kind\": \"SparkApplication\"\
+    ,\n        \"metadata\": {\"name\": name, \"namespace\": namespace,\n        \
+    \             \"labels\": {\"app.kubernetes.io/managed-by\": \"company-airflow\"\
+    , \"company-profile\": compute_profile}},\n        \"spec\": {\n            \"\
+    pyFiles\": \"local:///opt/company/launcher.py\",\n            \"runtimeVersions\"\
+    : {\"sparkVersion\": spark_version},\n            \"sparkConf\": conf,\n     \
+    \       \"driverSpec\": {\"podTemplateSpec\": driver_template},\n            \"\
+    executorSpec\": {\"podTemplateSpec\": executor_template},\n            \"applicationTolerations\"\
+    : {\n                \"restartConfig\": {\"restartPolicy\": \"Never\"},\n    \
+    \            \"resourceRetainPolicy\": \"Always\",\n                \"resourceRetainDurationMillis\"\
+    : 900000,\n                \"ttlAfterStopMillis\": 86400000,\n               \
+    \ \"instanceConfig\": {\"minExecutors\": 1, \"initExecutors\": resources[\"executors\"\
+    ], \"maxExecutors\": resources[\"executors\"]},\n                \"applicationTimeoutConfig\"\
+    : {\"driverStartTimeoutMillis\": 600000,\n                                   \
+    \          \"executorStartTimeoutMillis\": 600000},\n            },\n        },\n\
+    \    }\n"
   company_airflow__hooks____init__.py: ''
   company_airflow__hooks__kubernetes_job.py: "\"\"\"Thin Kubernetes batch Job client.\"\
     \"\"\nfrom kubernetes import client, config\nfrom kubernetes.client.exceptions\
@@ -507,7 +509,7 @@ data:
     \    \"\"\"\n    template_fields = (\"parameters\", \"compute_profile\", \"wheel_url\"\
     , \"wheel_sha256\", \"enabled\")\n    template_fields_renderers = {\"parameters\"\
     : \"json\"}\n    ui_color = \"#E6F2FA\"\n\n    def __init__(self, *, parameters,\
-    \ wheel_url, compute_profile=\"small\",\n                 runtime=\"company-spark-runtime:0.2.0\"\
+    \ wheel_url, compute_profile=\"small\",\n                 runtime=\"company-spark-runtime:0.4.0\"\
     , spark_version=\"4.2.0\",\n                 namespace=\"spark-lab\", entrypoint=\"\
     company_ingestion.entrypoint:main\",\n                 wheel_sha256=None, spark_conf=None,\
     \ timeout_seconds=3600,\n                 poll_interval=10, in_cluster=True, kube_context=None,\n\
@@ -665,8 +667,8 @@ data:
     wide\"]:\n        task = CompanySparkOperator(\n            task_id=f\"ingest_{table}\"\
     ,\n            enabled=\"{{ params.table in ['all', '\" + table + \"'] }}\",\n\
     \            compute_profile=\"{{ params.compute_profile }}\",\n            wheel_url=\"\
-    http://artifacts:8080/company_ingestion-0.7.0-py3-none-any.whl\",\n          \
-    \  wheel_sha256=os.environ.get(\"COMPANY_WHEEL_SHA256\"),\n            parameters={\n\
+    http://artifacts:8080/company_ingestion-0.10.0-py3-none-any.whl\",\n         \
+    \   wheel_sha256=os.environ.get(\"COMPANY_WHEEL_SHA256\"),\n            parameters={\n\
     \                \"source\": {\"type\": \"sqlserver\", \"host\": \"sqlserver\"\
     , \"database\": \"Benchmark\", \"schema\": \"dbo\", \"table\": table,\n      \
     \                     \"trust_server_certificate\": True},\n                \"\

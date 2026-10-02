@@ -24,7 +24,7 @@ Each task logs its selected plan and a JSON result, also returned through XCom.
             task_id=f"ingest_{table}",
             enabled="{{ params.table in ['all', '" + table + "'] }}",
             compute_profile="{{ params.compute_profile }}",
-            wheel_url="http://artifacts:8080/company_ingestion-0.7.0-py3-none-any.whl",
+            wheel_url="http://artifacts:8080/company_ingestion-0.10.0-py3-none-any.whl",
             wheel_sha256=os.environ.get("COMPANY_WHEEL_SHA256"),
             parameters={
                 "source": {"type": "sqlserver", "host": "sqlserver", "database": "Benchmark", "schema": "dbo", "table": table,

@@ -42,12 +42,37 @@ class SourceConfig:
 class DestinationConfig:
     uri: str
     format: str = "delta"
+    write_mode: str = "spark"
+    compression: str = "zstd"
+    output_partitions: int | None = None
+    target_file_bytes: int | None = 128 * 1024 * 1024
+    estimated_compression_ratio: float = 0.33
 
     def __post_init__(self):
         if self.format != "delta":
             raise ValueError("This engine version supports destination.format=delta")
+        if self.write_mode not in {"spark", "pyarrow"}:
+            raise ValueError("destination.write_mode must be spark or pyarrow")
         if not isinstance(self.uri, str) or not self.uri:
             raise ValueError("destination.uri is required")
+        if self.compression not in {"snappy", "zstd", "uncompressed"}:
+            raise ValueError(
+                "destination.compression must be snappy, zstd, or uncompressed"
+            )
+        for name in ("output_partitions", "target_file_bytes"):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 1
+            ):
+                raise ValueError(f"destination.{name} must be a positive integer")
+        if (
+            isinstance(self.estimated_compression_ratio, bool)
+            or not isinstance(self.estimated_compression_ratio, (int, float))
+            or not 0 < self.estimated_compression_ratio <= 1
+        ):
+            raise ValueError(
+                "destination.estimated_compression_ratio must be between 0 and 1"
+            )
 
 
 @dataclass(frozen=True)
@@ -61,10 +86,17 @@ class BenchmarkConfig:
     """Optional diagnostics; materialization deliberately changes the data path."""
 
     isolate_io_phases: bool = False
+    writer_matrix: bool = False
 
     def __post_init__(self):
         if not isinstance(self.isolate_io_phases, bool):
             raise ValueError("benchmark.isolate_io_phases must be boolean")
+        if not isinstance(self.writer_matrix, bool):
+            raise ValueError("benchmark.writer_matrix must be boolean")
+        if self.writer_matrix and not self.isolate_io_phases:
+            raise ValueError(
+                "benchmark.writer_matrix requires isolate_io_phases=true"
+            )
 
 
 @dataclass(frozen=True)

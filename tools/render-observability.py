@@ -99,6 +99,10 @@ panel("Spark reader — tempos internos", 'company_ingestion_duration_seconds{en
       "s", 0,80,24,
       description="Somas por executor podem se sobrepor. source_pipeline_span é o relógio de parede; fetch mede espera do SQL/ODBC e consumer_wait mede Arrow/Python/JVM e backpressure do Delta.")
 panels[-1]["targets"][0]["legendFormat"] = "{{read_mode}} / {{phase}} / {{run_id}}"
+panel("Arrow prefetch — espera por batch", 'company_ingestion_duration_seconds{engine="spark",read_mode="mssql_arrow",table=~"$table",profile=~"$profile",phase="reader_prefetch_queue_wait_seconds_sum"}',
+      "s", 0,88,24,
+      description="Tempo acumulado por task esperando um batch na fila limitada de prefetch. Compare com source_fetch_seconds_sum e consumer_wait.")
+panels[-1]["targets"][0]["legendFormat"] = "{{table}} / {{run_id}}"
 dashboard = {"uid": "company-spark", "title": "Company Ingestion — Spark × dltHub", "schemaVersion": 39, "version": 2,
     "refresh": "10s", "time": {"from": "now-6h", "to": "now"}, "panels": panels,
     "templating": {"list": [{"name": name, "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"},
@@ -125,7 +129,7 @@ deploy("grafana", "grafana/grafana:13.2.2",3000,
 history_opts = " ".join(["-Dspark.history.fs.logDirectory=s3a://spark-events/", "-Dspark.hadoop.fs.s3a.endpoint=http://seaweedfs:8333",
     "-Dspark.hadoop.fs.s3a.path.style.access=true", "-Dspark.hadoop.fs.s3a.connection.ssl.enabled=false", "-Dspark.hadoop.fs.s3a.endpoint.region=us-east-1",
     "-Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider"])
-deploy("spark-history", "company-spark-runtime:0.2.0",18080,
+deploy("spark-history", "company-spark-runtime:0.4.0",18080,
     env=[{"name":"SPARK_HISTORY_OPTS","value":history_opts},{"name":"SPARK_DAEMON_MEMORY","value":"512m"},
          {"name":"AWS_ACCESS_KEY_ID","valueFrom":{"secretKeyRef":{"name":"seaweedfs-credentials","key":"access_key"}}},
          {"name":"AWS_SECRET_ACCESS_KEY","valueFrom":{"secretKeyRef":{"name":"seaweedfs-credentials","key":"secret_key"}}}],memory="256Mi")

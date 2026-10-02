@@ -43,6 +43,7 @@ def build_application(*, name: str, namespace: str, runtime: str, spark_version:
         secret_env("AWS_ACCESS_KEY_ID", "seaweedfs-credentials", "access_key"),
         secret_env("AWS_SECRET_ACCESS_KEY", "seaweedfs-credentials", "secret_key"),
         {"name": "AWS_REGION", "value": "us-east-1"},
+        {"name": "AWS_ENDPOINT_URL", "value": "http://seaweedfs:8333"},
     ]
     if wheel_sha256:
         env.append({"name": "COMPANY_WHEEL_SHA256", "value": wheel_sha256})
@@ -101,6 +102,7 @@ def build_application(*, name: str, namespace: str, runtime: str, spark_version:
         if value["name"] in {
             "SQLSERVER_USER", "SQLSERVER_PASSWORD",
             "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION",
+            "AWS_ENDPOINT_URL",
         }
     ]
     executor_template = {"spec": {"containers": [{"name": "spark-kubernetes-executor", "env": executor_env}]}}

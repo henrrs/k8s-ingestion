@@ -13,7 +13,7 @@ ingestão. A DAG informa intenção e limites; cada motor decide como executar.
 | `wheel_url` | sim | — | URL HTTP(S) do wheel executado pelo runtime. |
 | `wheel_sha256` | recomendado | `None` | SHA-256 esperado. Quando informado, divergência impede a execução. |
 | `compute_profile` | não | `small` | Perfil `small` ou `medium`. É um campo templated. |
-| `runtime` | não | `company-spark-runtime:0.2.0` | Imagem genérica de Spark usada por driver e executores. |
+| `runtime` | não | `company-spark-runtime:0.4.0` | Imagem genérica de Spark usada por driver e executores. |
 | `spark_version` | não | `4.2.0` | Versão declarada na `SparkApplication`. |
 | `namespace` | não | `spark-lab` | Namespace onde a aplicação é criada. |
 | `entrypoint` | não | `company_ingestion.entrypoint:main` | Função Python carregada do wheel. |
@@ -144,7 +144,7 @@ limita chunks a 4 GiB ou 5 milhões de linhas para preservar retries. Todos esse
 limites respeitam `max_chunks`.
 
 O `fetch_size` automático reserva aproximadamente 16 MiB de dados de origem por
-lote: `16 MiB / bytes médios por linha`, limitado entre 1.000 e 100.000 linhas e
+lote: `target_fetch_batch_bytes / bytes médios por linha`, limitado entre 1.000 e 100.000 linhas e
 pela cardinalidade estimada do chunk. Os valores resolvidos são persistidos em
 `plan.json`; retries reutilizam exatamente o mesmo plano.
 
@@ -346,23 +346,36 @@ worker lê a origem `AS OF SCN` usando o SCN gravado no plano.
 |---|---:|---|---|
 | `uri` | sim | — | Prefixo da tabela, por exemplo `s3a://lakehouse/bronze/orders`. |
 | `format` | não | `delta` | Esta versão aceita somente `delta`. |
+| `compression` | não | `zstd` | Codec Parquet: `zstd`, `snappy` ou `uncompressed`. Zstandard reduziu os bytes em 48,2% sem regressão material no benchmark wide. |
+| `output_partitions` | não | `None` | Força o número de arquivos/tasks do writer e, quando definido, prevalece sobre `target_file_bytes`. |
+| `target_file_bytes` | não | `134217728` | Alvo adaptativo de 128 MiB por arquivo. O motor estima a saída e preserva, reduz ou aumenta partições conforme necessário. |
+| `estimated_compression_ratio` | não | `0.33` | Estimativa conservadora `bytes Parquet / bytes da origem` usada apenas para calcular arquivos. |
 
 O caminho efetivo é `<uri>/<run_id>`. O motor usa `errorifexists`, impedindo que
 uma tentativa sobrescreva silenciosamente outra execução.
+
+Quando `output_partitions` não é informado, o motor estima
+`source_bytes × estimated_compression_ratio / target_file_bytes`. Se o resultado
+for menor que as partições de leitura, usa `coalesce`, evitando shuffle; se for
+maior, usa `repartition`. Quando o número calculado já coincide com a origem, o
+DataFrame é preservado. A decisão aparece em `writer.partition_plan` no resumo.
 
 ### `planner`
 
 | Campo | Obrigatório | Padrão | Descrição |
 |---|---:|---:|---|
-| `max_connections` | não | `8` | Limite de conexões JDBC concorrentes por execução. |
+| `max_connections` | não | `8` | Limite de conexões simultâneas por execução. |
 | `target_partition_bytes` | não | `33554432` | Tamanho estimado desejado por partição (32 MiB). |
 | `fetch_size` | não | `auto` | Linhas por lote, calculadas pela largura média para aproximadamente 16 MiB; também aceita inteiro positivo. Vale para JDBC e Arrow. |
 | `task_slots` | injetado | perfil | Paralelismo físico disponível; a DAG não deve defini-lo. |
+| `max_partition_oversubscription` | não | `1` | Partições máximas por slot Spark. `1` alinha ao paralelismo físico; aumente para tolerar skew. |
+| `target_fetch_batch_bytes` | não | `16777216` | Alvo adaptativo em bytes para batches JDBC/Arrow (16 MiB por padrão; 32 MiB excedeu a memória do perfil local). |
 
 O número solicitado é limitado por conexões, capacidade do perfil e tamanho:
 
 ```text
-min(max_connections, task_slots × 2, ceil(source_bytes / target_partition_bytes))
+min(max_connections, task_slots × max_partition_oversubscription,
+    ceil(source_bytes / target_partition_bytes))
 ```
 
 Para mais de uma partição, o motor procura a primeira chave numérica ou temporal
@@ -392,13 +405,18 @@ e serve somente para localizar gargalos. Consulte o
 [benchmark JDBC × Arrow](../benchmarks/spark-jdbc-mssql-arrow.md) para a semântica
 das métricas internas do leitor.
 
+`benchmark.writer_matrix=true` exige `isolate_io_phases=true` e grava o mesmo
+DataFrame em Delta/Parquet com Snappy, Zstandard, sem compressão e, quando
+aplicável, com uma única partição. Cada variante possui URI, tempo, bytes,
+arquivos, contagem e checksum próprios. Essa opção serve apenas para benchmark.
+
 ## Exemplo de DAG
 
 ```python
 CompanySparkOperator(
     task_id="ingest_orders",
     compute_profile="medium",
-    wheel_url="http://artifacts:8080/company_ingestion-0.7.0-py3-none-any.whl",
+    wheel_url="http://artifacts:8080/company_ingestion-0.10.0-py3-none-any.whl",
     wheel_sha256=os.environ["COMPANY_WHEEL_SHA256"],
     parameters={
         "source": {

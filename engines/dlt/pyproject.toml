@@ -7,7 +7,7 @@ name = "company-dlt-ingestion"
 version = "0.6.0"
 description = "Composable distributed ingestion engine using dltHub"
 requires-python = ">=3.10"
-dependencies = ["company-ingestion-core==0.2.0"]
+dependencies = ["company-ingestion-core==0.3.0"]
 
 [project.scripts]
 company-dlt-ingestion = "company_dlt_ingestion.bootstrap.entrypoint:main"

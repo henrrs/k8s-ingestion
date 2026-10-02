@@ -869,6 +869,47 @@
           "mode": "multi"
         }
       }
+    },
+    {
+      "id": 22,
+      "title": "Arrow prefetch \u2014 espera por batch",
+      "description": "Tempo acumulado por task esperando um batch na fila limitada de prefetch. Compare com source_fetch_seconds_sum e consumer_wait.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 88,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "company_ingestion_duration_seconds{engine=\"spark\",read_mode=\"mssql_arrow\",table=~\"$table\",profile=~\"$profile\",phase=\"reader_prefetch_queue_wait_seconds_sum\"}",
+          "legendFormat": "{{table}} / {{run_id}}",
+          "refId": "A",
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ],
   "templating": {

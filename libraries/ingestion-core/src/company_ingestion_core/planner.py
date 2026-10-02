@@ -214,14 +214,19 @@ def predicates_for(column, boundaries, identifier_renderer=identifier):
 
 def plan_read(metadata, config, column=None, histogram=(), bounds=None, warnings=(),
               identifier_renderer=identifier):
-    requested = max(1, min(config.max_connections, config.task_slots * 2, math.ceil(metadata.estimated_bytes / config.target_partition_bytes)))
+    requested = max(1, min(
+        config.max_connections,
+        config.task_slots * config.max_partition_oversubscription,
+        math.ceil(metadata.estimated_bytes / config.target_partition_bytes),
+    ))
     fetch_size, fetch_size_mode = adaptive_fetch_size(
-        metadata, requested, config.fetch_size
+        metadata, requested, config.fetch_size,
+        target_bytes=config.target_fetch_batch_bytes,
     )
     common = dict(estimated_rows=metadata.estimated_rows, estimated_source_bytes=metadata.estimated_bytes,
                   requested_partitions=requested, fetch_size=fetch_size,
                   fetch_size_mode=fetch_size_mode,
-                  target_fetch_batch_bytes=AUTO_FETCH_BATCH_BYTES,
+                  target_fetch_batch_bytes=config.target_fetch_batch_bytes,
                   warnings=list(warnings))
     if requested == 1:
         return ReadPlan("single_scan", ["1=1"], None, rationale="Estimated table size fits one task or compute/connection budget is one.", **common)
@@ -293,7 +298,9 @@ def adaptive_chunk_settings(metadata, config):
     return count, resolved_bytes, "auto"
 
 
-def adaptive_fetch_size(metadata, chunk_count, configured=None):
+def adaptive_fetch_size(
+    metadata, chunk_count, configured=None, target_bytes=AUTO_FETCH_BATCH_BYTES
+):
     if configured is not None:
         return configured, "manual"
     if metadata.estimated_rows <= 0:
@@ -301,7 +308,7 @@ def adaptive_fetch_size(metadata, chunk_count, configured=None):
     average_row_bytes = max(
         1, math.ceil(metadata.estimated_bytes / metadata.estimated_rows)
     )
-    batch_rows = AUTO_FETCH_BATCH_BYTES // average_row_bytes
+    batch_rows = target_bytes // average_row_bytes
     batch_rows = max(AUTO_MIN_FETCH_ROWS, min(AUTO_MAX_FETCH_ROWS, batch_rows))
     estimated_chunk_rows = max(
         1, math.ceil(metadata.estimated_rows / max(1, chunk_count))
@@ -330,6 +337,7 @@ def plan_distributed_read(metadata, config: DistributedPlannerConfig, column=Non
         target_partition_bytes=target_chunk_bytes,
         task_slots=max(1, math.ceil(requested / 2)),
         fetch_size=fetch_size,
+        max_partition_oversubscription=2,
     )
     base = plan_read(
         metadata, base_config, column, histogram, bounds, warnings,

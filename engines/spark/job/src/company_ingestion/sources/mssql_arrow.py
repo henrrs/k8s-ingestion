@@ -7,6 +7,8 @@ and password values are resolved from executor environment variables.
 from __future__ import annotations
 
 import os
+import queue
+import threading
 import time
 
 
@@ -20,6 +22,93 @@ class TaskMetricsAccumulatorParam:
         merged = dict(current)
         merged.update(update)
         return merged
+
+
+def _put_prefetch_event(events, event, stop):
+    while not stop.is_set():
+        try:
+            events.put(event, timeout=0.1)
+            return True
+        except queue.Full:
+            continue
+    return False
+
+
+def _prefetched_chunk_batches(source, query, batch_size, metrics):
+    """Fetch on an ODBC-owned thread while Spark consumes the prior batch.
+
+    The one-element queue bounds queued Arrow memory to one batch per task.
+    All connection, cursor, and Arrow reader operations stay on the producer
+    thread; the Spark Python worker only receives completed RecordBatches.
+    """
+    events = queue.Queue(maxsize=1)
+    stop = threading.Event()
+
+    def produce():
+        connection = None
+        cursor = None
+        reader = None
+        try:
+            phase = time.perf_counter()
+            import mssql_python
+
+            connection = mssql_python.connect(
+                _connection_string(source),
+                timeout=source["query_timeout_seconds"],
+            )
+            metrics["source_connect_seconds"] += time.perf_counter() - phase
+            cursor = connection.cursor()
+            phase = time.perf_counter()
+            cursor.execute(query)
+            metrics["source_execute_seconds"] += time.perf_counter() - phase
+            reader = cursor.arrow_reader(batch_size=batch_size)
+            iterator = iter(reader)
+            while not stop.is_set():
+                phase = time.perf_counter()
+                try:
+                    batch = next(iterator)
+                except StopIteration:
+                    metrics["source_fetch_seconds"] += time.perf_counter() - phase
+                    _put_prefetch_event(events, ("done", None), stop)
+                    return
+                except BaseException:
+                    metrics["source_fetch_seconds"] += time.perf_counter() - phase
+                    raise
+                metrics["source_fetch_seconds"] += time.perf_counter() - phase
+                metrics["batches"] += 1
+                metrics["rows"] += batch.num_rows
+                metrics["arrow_bytes"] += batch.nbytes
+                if not _put_prefetch_event(events, ("batch", batch), stop):
+                    return
+        except BaseException as error:
+            _put_prefetch_event(events, ("error", error), stop)
+        finally:
+            if reader is not None:
+                reader.close()
+            if cursor is not None:
+                cursor.close()
+            if connection is not None:
+                connection.close()
+
+    producer = threading.Thread(
+        target=produce, name="mssql-arrow-prefetch", daemon=True
+    )
+    producer.start()
+    try:
+        while True:
+            waiting = time.perf_counter()
+            kind, value = events.get()
+            metrics["prefetch_queue_wait_seconds"] += time.perf_counter() - waiting
+            if kind == "done":
+                break
+            if kind == "error":
+                raise value
+            yield value
+    finally:
+        stop.set()
+        producer.join(timeout=source["query_timeout_seconds"] + 10)
+        if producer.is_alive():
+            raise TimeoutError("mssql-python Arrow prefetch thread did not stop")
 
 
 def _odbc_value(value):
@@ -77,6 +166,7 @@ def extract_batches(
         "source_connect_seconds": 0.0,
         "source_execute_seconds": 0.0,
         "source_fetch_seconds": 0.0,
+        "prefetch_queue_wait_seconds": 0.0,
         "arrow_consumer_wait_seconds": 0.0,
         "started_at_epoch": time.time(),
     }
@@ -86,46 +176,18 @@ def extract_batches(
             for chunk_id in control_batch.column(0).to_pylist():
                 chunk_id = int(chunk_id)
                 metrics["chunks"] += 1
-                phase = time.perf_counter()
-                connection = mssql_python.connect(
-                    _connection_string(source),
-                    timeout=source["query_timeout_seconds"],
+                query = (
+                    f"SELECT {projection} FROM {source['qualified_table']} "
+                    f"WHERE {predicates[chunk_id]}"
                 )
-                metrics["source_connect_seconds"] += time.perf_counter() - phase
-                cursor = connection.cursor()
-                reader = None
-                try:
-                    phase = time.perf_counter()
-                    cursor.execute(
-                        f"SELECT {projection} FROM {source['qualified_table']} "
-                        f"WHERE {predicates[chunk_id]}"
+                for batch in _prefetched_chunk_batches(
+                    source, query, batch_size, metrics
+                ):
+                    handoff_started = time.perf_counter()
+                    yield batch
+                    metrics["arrow_consumer_wait_seconds"] += (
+                        time.perf_counter() - handoff_started
                     )
-                    metrics["source_execute_seconds"] += time.perf_counter() - phase
-                    reader = cursor.arrow_reader(batch_size=batch_size)
-                    iterator = iter(reader)
-                    while True:
-                        phase = time.perf_counter()
-                        try:
-                            batch = next(iterator)
-                        except StopIteration:
-                            metrics["source_fetch_seconds"] += (
-                                time.perf_counter() - phase
-                            )
-                            break
-                        metrics["source_fetch_seconds"] += time.perf_counter() - phase
-                        metrics["batches"] += 1
-                        metrics["rows"] += batch.num_rows
-                        metrics["arrow_bytes"] += batch.nbytes
-                        handoff_started = time.perf_counter()
-                        yield batch
-                        metrics["arrow_consumer_wait_seconds"] += (
-                            time.perf_counter() - handoff_started
-                        )
-                finally:
-                    if reader is not None:
-                        reader.close()
-                    cursor.close()
-                    connection.close()
     finally:
         metrics["finished_at_epoch"] = time.time()
         metrics["task_wall_seconds"] = time.perf_counter() - task_started
@@ -149,6 +211,7 @@ def summarize_task_metrics(tasks):
         "source_connect_seconds",
         "source_execute_seconds",
         "source_fetch_seconds",
+        "prefetch_queue_wait_seconds",
         "arrow_consumer_wait_seconds",
         "task_wall_seconds",
     )
@@ -171,7 +234,8 @@ def summarize_task_metrics(tasks):
         "measurement_note": (
             "Arrow bytes are uncompressed in-memory batch bytes, not TDS network bytes. "
             "Sum durations are executor time and overlap across concurrent tasks; "
-            "source_pipeline_span is wall-clock span."
+            "source_pipeline_span is wall-clock span. Prefetch queue wait is time "
+            "the Spark Python worker waits for the producer's next event."
         ),
         "tasks": len(values),
         "chunks": sum(int(value["chunks"]) for value in values),

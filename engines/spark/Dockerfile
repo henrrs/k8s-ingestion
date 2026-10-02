@@ -8,16 +8,17 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY engines/spark/dependencies/jars/ /opt/spark/jars/
 COPY engines/spark/launcher.py /opt/company/launcher.py
-COPY dist/company_ingestion_core-0.2.0-py3-none-any.whl /tmp/company_ingestion_core-0.2.0-py3-none-any.whl
+COPY dist/company_ingestion_core-0.3.0-py3-none-any.whl /tmp/company_ingestion_core-0.3.0-py3-none-any.whl
 RUN python3 -m pip install --no-cache-dir --no-deps \
         delta-spark==4.4.0 \
         pyarrow==25.0.1 \
     && python3 -m pip install --no-cache-dir \
         numpy==2.2.6 \
         pandas==2.3.3 \
+        deltalake==1.6.6 \
         mssql-python==1.15.0 \
-    && python3 -m pip install --no-cache-dir --no-deps /tmp/company_ingestion_core-0.2.0-py3-none-any.whl \
-    && rm /tmp/company_ingestion_core-0.2.0-py3-none-any.whl \
+    && python3 -m pip install --no-cache-dir --no-deps /tmp/company_ingestion_core-0.3.0-py3-none-any.whl \
+    && rm /tmp/company_ingestion_core-0.3.0-py3-none-any.whl \
     && chmod -R a+rX /opt/company
-ENV COMPANY_RUNTIME_VERSION=0.2.0
+ENV COMPANY_RUNTIME_VERSION=0.4.0
 USER 185

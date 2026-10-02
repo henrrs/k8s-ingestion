@@ -9,9 +9,14 @@ class PlannerConfig:
     target_partition_bytes: int = 32 * 1024 * 1024
     task_slots: int = 2
     fetch_size: int | None = None
+    max_partition_oversubscription: int = 1
+    target_fetch_batch_bytes: int = 16 * 1024 * 1024
 
     def __post_init__(self):
-        for name in ("max_connections", "target_partition_bytes", "task_slots"):
+        for name in (
+            "max_connections", "target_partition_bytes", "task_slots",
+            "max_partition_oversubscription", "target_fetch_batch_bytes",
+        ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"planner.{name} must be a positive integer")

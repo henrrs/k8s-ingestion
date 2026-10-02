@@ -204,6 +204,31 @@ class SqlServerSource:
             **summarize_task_metrics(self._arrow_metrics["accumulator"].value),
         }
 
+    def write_pyarrow_parquet(self, plan, destination_uri, compression):
+        """Execute ranges in Spark tasks and return immutable Parquet manifests."""
+        from company_ingestion.writers.pyarrow_parquet import write_partitions
+
+        _, projection = self._arrow_schema_and_projection()
+        self.close()
+        source = asdict(self.config)
+        source["qualified_table"] = self.qualified_table
+        writer = partial(
+            write_partitions,
+            source=source,
+            predicates=tuple(plan.predicates),
+            projection=projection,
+            batch_size=plan.fetch_size,
+            destination_uri=destination_uri,
+            compression=compression,
+        )
+        return (
+            self.spark.sparkContext.parallelize(
+                range(plan.partitions), plan.partitions
+            )
+            .mapPartitions(writer)
+            .collect()
+        )
+
     def _read_arrow(self, plan):
         from .mssql_arrow import (
             TaskMetricsAccumulatorParam,
